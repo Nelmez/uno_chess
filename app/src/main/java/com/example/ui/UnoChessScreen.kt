@@ -131,8 +131,8 @@ fun UnoChessScreen(
         celebrationDismissed = false
     }
 
-    LaunchedEffect(lanState.isLanConnected) {
-        if (lanState.isLanConnected && showLanDialog) {
+    LaunchedEffect(lanState.isRemoteConnected) {
+        if (lanState.isRemoteConnected && showLanDialog) {
             showLanDialog = false
         }
     }
@@ -145,15 +145,15 @@ fun UnoChessScreen(
     }
 
     val localPlayer: PlayerId? = when {
-        lanState.isLanConnected && lanState.role == NetworkRole.LAN_HOST -> PlayerId.PLAYER_1
-        lanState.isLanConnected && lanState.role == NetworkRole.LAN_GUEST -> PlayerId.PLAYER_2
-        !lanState.isLanConnected && opponentMode is OpponentMode.VsAi -> PlayerId.PLAYER_1
+        lanState.isRemoteConnected && lanState.role.isHost -> PlayerId.PLAYER_1
+        lanState.isRemoteConnected && lanState.role.isGuest -> PlayerId.PLAYER_2
+        !lanState.isRemoteConnected && opponentMode is OpponentMode.VsAi -> PlayerId.PLAYER_1
         else -> null
     }
     val isLocalTurn = localPlayer == null || state.activePlayer == localPlayer
-    val waitingForRemoteLan = lanState.isLanConnected && !isLocalTurn && state.outcome == null
+    val waitingForRemoteLan = lanState.isRemoteConnected && !isLocalTurn && state.outcome == null
 
-    val effectiveBoardFlipped = if (lanState.isLanConnected && localPlayer != null) {
+    val effectiveBoardFlipped = if (lanState.isRemoteConnected && localPlayer != null) {
         state.playerColors.getValue(localPlayer) == PieceColor.BLACK
     } else {
         state.boardFlipped
@@ -258,7 +258,7 @@ fun UnoChessScreen(
             VictoryCelebrationOverlay(
                 outcome = state.outcome,
                 opponentMode = opponentMode,
-                isLanConnected = lanState.isLanConnected,
+                isLanConnected = lanState.isRemoteConnected,
                 visible = !celebrationDismissed,
                 onDismiss = { celebrationDismissed = true },
                 onNewGame = {
@@ -288,7 +288,8 @@ fun UnoChessScreen(
     if (showSettingsModal) {
         SettingsModalDialog(
             opponentMode = opponentMode,
-            isLanConnected = lanState.isLanConnected,
+            isLanConnected = lanState.isRemoteConnected,
+            isOnlineMatch = lanState.role.isOnline,
             isDarkTheme = isDarkTheme,
             soundEnabled = soundEnabled,
             cardTheme = cardTheme,
@@ -310,6 +311,10 @@ fun UnoChessScreen(
             onStartDiscovery = { viewModel.startLanDiscovery(context) },
             onStopDiscovery = viewModel::stopLanDiscovery,
             onConnect = { ip, port -> viewModel.joinLanHost(ip, port) },
+            onCreateOnlineLobby = viewModel::createOnlineLobby,
+            onJoinOnlineLobby = viewModel::joinOnlineLobby,
+            onWatchOnlineLobbies = viewModel::startOnlineLobbyListing,
+            onStopWatchingOnlineLobbies = viewModel::stopOnlineLobbyListing,
             onLeaveMatch = viewModel::leaveLanMatch,
             onDismiss = { showLanDialog = false }
         )
@@ -412,7 +417,7 @@ private fun CompactPortraitLayout(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             MinimalHeaderBar(
-                isLanConnected = lanState.isLanConnected,
+                isLanConnected = lanState.isRemoteConnected,
                 currentStreak = matchStats.currentStreak,
                 onOpenMatchLog = onOpenMatchLog,
                 onOpenSettings = onOpenSettings,
@@ -424,7 +429,7 @@ private fun CompactPortraitLayout(
 
             PlayerStripCard(
                 player = topPlayer,
-                displayName = resolvePlayerLabel(topPlayer, opponentMode, lanState.isLanConnected),
+                displayName = resolvePlayerLabel(topPlayer, opponentMode, lanState.isRemoteConnected),
                 color = topColor,
                 isActiveTurn = state.activePlayer == topPlayer && state.outcome == null,
                 isInCheck = checkedColor == topColor,
@@ -433,7 +438,7 @@ private fun CompactPortraitLayout(
                 selectedRevivePieceId = state.selectedRevivePieceId,
                 onSelectRevivePiece = onSelectRevivePiece,
                 showInlineCapturedTray = true,
-                isLocalUser = lanState.isLanConnected && localPlayer == topPlayer,
+                isLocalUser = lanState.isRemoteConnected && localPlayer == topPlayer,
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -460,7 +465,7 @@ private fun CompactPortraitLayout(
                     GameOverBannerCard(
                         outcome = outcome,
                         opponentMode = opponentMode,
-                        isLanConnected = lanState.isLanConnected,
+                        isLanConnected = lanState.isRemoteConnected,
                         onNewGame = onInstantNewGame,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -471,7 +476,7 @@ private fun CompactPortraitLayout(
 
             PlayerStripCard(
                 player = bottomPlayer,
-                displayName = resolvePlayerLabel(bottomPlayer, opponentMode, lanState.isLanConnected),
+                displayName = resolvePlayerLabel(bottomPlayer, opponentMode, lanState.isRemoteConnected),
                 color = bottomColor,
                 isActiveTurn = state.activePlayer == bottomPlayer && state.outcome == null,
                 isInCheck = checkedColor == bottomColor,
@@ -480,7 +485,7 @@ private fun CompactPortraitLayout(
                 selectedRevivePieceId = state.selectedRevivePieceId,
                 onSelectRevivePiece = onSelectRevivePiece,
                 showInlineCapturedTray = true,
-                isLocalUser = lanState.isLanConnected && localPlayer == bottomPlayer,
+                isLocalUser = lanState.isRemoteConnected && localPlayer == bottomPlayer,
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -514,9 +519,10 @@ private fun CompactPortraitLayout(
                     TurnStatusSummary(
                         state = state,
                         opponentMode = opponentMode,
-                        isLanConnected = lanState.isLanConnected,
+                        isLanConnected = lanState.isRemoteConnected,
                         isAiThinking = isAiThinking,
                         waitingForRemotePlayer = waitingForRemoteLan,
+                        remoteChannelLabel = if (lanState.role.isOnline) "the internet" else "Wi-Fi",
                         modifier = Modifier.weight(1f)
                     )
 
@@ -647,7 +653,7 @@ private fun ExpandedTabletopLayout(
         ) {
             PlayerStripCard(
                 player = topPlayer,
-                displayName = resolvePlayerLabel(topPlayer, opponentMode, lanState.isLanConnected),
+                displayName = resolvePlayerLabel(topPlayer, opponentMode, lanState.isRemoteConnected),
                 color = topColor,
                 isActiveTurn = state.activePlayer == topPlayer && state.outcome == null,
                 isInCheck = checkedColor == topColor,
@@ -656,7 +662,7 @@ private fun ExpandedTabletopLayout(
                 selectedRevivePieceId = state.selectedRevivePieceId,
                 onSelectRevivePiece = onSelectRevivePiece,
                 showInlineCapturedTray = false,
-                isLocalUser = lanState.isLanConnected && localPlayer == topPlayer,
+                isLocalUser = lanState.isRemoteConnected && localPlayer == topPlayer,
                 modifier = Modifier.widthIn(max = 560.dp)
             )
 
@@ -681,7 +687,7 @@ private fun ExpandedTabletopLayout(
 
             PlayerStripCard(
                 player = bottomPlayer,
-                displayName = resolvePlayerLabel(bottomPlayer, opponentMode, lanState.isLanConnected),
+                displayName = resolvePlayerLabel(bottomPlayer, opponentMode, lanState.isRemoteConnected),
                 color = bottomColor,
                 isActiveTurn = state.activePlayer == bottomPlayer && state.outcome == null,
                 isInCheck = checkedColor == bottomColor,
@@ -690,7 +696,7 @@ private fun ExpandedTabletopLayout(
                 selectedRevivePieceId = state.selectedRevivePieceId,
                 onSelectRevivePiece = onSelectRevivePiece,
                 showInlineCapturedTray = false,
-                isLocalUser = lanState.isLanConnected && localPlayer == bottomPlayer,
+                isLocalUser = lanState.isRemoteConnected && localPlayer == bottomPlayer,
                 modifier = Modifier.widthIn(max = 560.dp)
             )
         }
@@ -703,7 +709,7 @@ private fun ExpandedTabletopLayout(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             MinimalHeaderBar(
-                isLanConnected = lanState.isLanConnected,
+                isLanConnected = lanState.isRemoteConnected,
                 currentStreak = matchStats.currentStreak,
                 onOpenMatchLog = onOpenMatchLog,
                 onOpenSettings = onOpenSettings,
@@ -721,7 +727,7 @@ private fun ExpandedTabletopLayout(
                 GameOverBannerCard(
                     outcome = outcome,
                     opponentMode = opponentMode,
-                    isLanConnected = lanState.isLanConnected,
+                    isLanConnected = lanState.isRemoteConnected,
                     onNewGame = onInstantNewGame
                 )
             }
@@ -756,9 +762,10 @@ private fun ExpandedTabletopLayout(
                         TurnStatusSummary(
                             state = state,
                             opponentMode = opponentMode,
-                            isLanConnected = lanState.isLanConnected,
+                            isLanConnected = lanState.isRemoteConnected,
                             isAiThinking = isAiThinking,
                             waitingForRemotePlayer = waitingForRemoteLan,
+                            remoteChannelLabel = if (lanState.role.isOnline) "the internet" else "Wi-Fi",
                             modifier = Modifier.weight(1f)
                         )
                         ForfeitCompactButton(
@@ -807,7 +814,7 @@ private fun ExpandedTabletopLayout(
             SidePanelCapturedTraysCard(
                 state = state,
                 opponentMode = opponentMode,
-                isLanConnected = lanState.isLanConnected,
+                isLanConnected = lanState.isRemoteConnected,
                 isLocalTurn = isLocalTurn,
                 onSelectRevivePiece = onSelectRevivePiece
             )

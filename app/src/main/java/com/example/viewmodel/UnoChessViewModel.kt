@@ -34,17 +34,23 @@ import com.example.model.TurnPhase
 import com.example.model.UnoCard
 import com.example.model.UnoCardTheme
 import com.example.model.UnoCardType
+import com.example.network.FirestoreOnlineSession
+import com.example.network.InMemoryOnlineSession
 import com.example.network.LanAction
 import com.example.network.LanSessionManager
 import com.example.network.LanSessionState
 import com.example.network.LanStateCodec
 import com.example.network.NetworkRole
+import com.example.network.OnlineMatchSession
+import com.example.network.OnlineRoomRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
@@ -52,6 +58,7 @@ import kotlin.random.Random
 class UnoChessViewModel(
     private val random: Random = Random.Default,
     private val aiStepDelayMs: Long = 460L,
+    onlineRooms: OnlineRoomRegistry? = null,
     private val initialDeckProvider: (() -> List<UnoCard>)? = null
 ) : ViewModel() {
 
@@ -103,7 +110,22 @@ class UnoChessViewModel(
         onMessageReceived = ::handleIncomingLanMessage,
         onGuestConnected = ::handleGuestConnected
     )
-    val lanState: StateFlow<LanSessionState> = lanManager.sessionState
+    private val onlineSession: OnlineMatchSession = if (onlineRooms != null) {
+        InMemoryOnlineSession(
+            registry = onlineRooms,
+            onMessageReceived = ::handleIncomingLanMessage,
+            onGuestConnected = ::handleGuestConnected
+        )
+    } else {
+        FirestoreOnlineSession(
+            onMessageReceived = ::handleIncomingLanMessage,
+            onGuestConnected = ::handleGuestConnected
+        )
+    }
+    val lanState: StateFlow<LanSessionState> = MergedSessionState(
+        lan = lanManager.sessionState,
+        online = onlineSession.sessionState
+    )
 
     fun toggleHostSpecialCard(key: SpecialCardKey) {
         val current = _hostEnabledSpecialCards.value
@@ -165,7 +187,8 @@ class UnoChessViewModel(
             current = _matchStats.value,
             outcome = outcome,
             opponentMode = _opponentMode.value,
-            isLanConnected = lanState.value.isLanConnected,
+            isLanConnected = snapshotSession().isLanConnected,
+            isOnline = snapshotSession().role.isOnline,
             totalTurns = turnsPlayedInMatch.coerceAtLeast(1)
         )
         _matchStats.value = updated
@@ -202,8 +225,8 @@ class UnoChessViewModel(
 
     fun setOpponentMode(mode: OpponentMode) {
         cancelAiTurn()
-        if (mode is OpponentMode.VsAi && lanState.value.role != NetworkRole.PASS_AND_PLAY) {
-            lanManager.disconnectToPassAndPlay()
+        if (mode is OpponentMode.VsAi && snapshotSession().role != NetworkRole.PASS_AND_PLAY) {
+            leaveLanMatch()
         }
         _opponentMode.value = mode
         synchronized(stateLock) {
@@ -225,6 +248,7 @@ class UnoChessViewModel(
     fun startLanHost(context: Context? = null, preferredPort: Int = 0) {
         cancelAiTurn()
         _opponentMode.value = OpponentMode.PassAndPlay
+        onlineSession.leave()
         lanManager.startHosting(context = context, preferredPort = preferredPort)
     }
 
@@ -239,19 +263,64 @@ class UnoChessViewModel(
     fun joinLanHost(hostIp: String, port: Int) {
         cancelAiTurn()
         _opponentMode.value = OpponentMode.PassAndPlay
+        onlineSession.leave()
         lanManager.connectToHost(hostIp, port)
+    }
+
+    fun createOnlineLobby(displayName: String) {
+        cancelAiTurn()
+        _opponentMode.value = OpponentMode.PassAndPlay
+        lanManager.disconnectToPassAndPlay()
+        onlineSession.createLobby(displayName)
+    }
+
+    fun joinOnlineLobby(code: String, displayName: String) {
+        cancelAiTurn()
+        _opponentMode.value = OpponentMode.PassAndPlay
+        lanManager.disconnectToPassAndPlay()
+        onlineSession.joinLobby(code, displayName)
+    }
+
+    fun startOnlineLobbyListing() {
+        onlineSession.startWatchingLobbies()
+    }
+
+    fun stopOnlineLobbyListing() {
+        onlineSession.stopWatchingLobbies()
     }
 
     fun leaveLanMatch() {
         lanManager.disconnectToPassAndPlay()
+        onlineSession.leave()
     }
 
     override fun onCleared() {
         cancelAiTurn()
         lanManager.shutdown()
+        onlineSession.shutdown()
         soundPlayer?.release()
         soundPlayer = null
         super.onCleared()
+    }
+
+    private fun snapshotSession(): LanSessionState {
+        val online = onlineSession.sessionState.value
+        val lan = lanManager.sessionState.value
+        val active = if (online.role.isOnline) online else lan
+        return active.copy(
+            openLobbies = online.openLobbies,
+            isListingLobbies = online.isListingLobbies
+        )
+    }
+
+    private fun linkName(): String = if (snapshotSession().role.isOnline) "Online" else "LAN"
+
+    private fun sendActiveLine(line: String) {
+        if (onlineSession.sessionState.value.role.isOnline) {
+            onlineSession.sendLine(line)
+        } else {
+            lanManager.sendLine(line)
+        }
     }
 
     private fun cancelAiTurn() {
@@ -265,7 +334,7 @@ class UnoChessViewModel(
         return if (
             player == PlayerId.PLAYER_2 &&
             mode is OpponentMode.VsAi &&
-            lanState.value.role == NetworkRole.PASS_AND_PLAY
+            snapshotSession().role == NetworkRole.PASS_AND_PLAY
         ) {
             "AI (${mode.difficulty.displayName})"
         } else {
@@ -276,7 +345,7 @@ class UnoChessViewModel(
     private fun isAiTurnNow(): Boolean {
         val mode = _opponentMode.value
         val state = _uiState.value
-        return lanState.value.role == NetworkRole.PASS_AND_PLAY &&
+        return snapshotSession().role == NetworkRole.PASS_AND_PLAY &&
             mode is OpponentMode.VsAi &&
             state.activePlayer == PlayerId.PLAYER_2 &&
             state.outcome == null
@@ -446,7 +515,7 @@ class UnoChessViewModel(
             val enabledSpecials = _hostEnabledSpecialCards.value
             val deckCount = UnoDeck.deckSizeFor(enabledSpecials)
             val fresh = createInitialState(
-                initialMessage = "LAN match connected ($deckCount-card deck) — Player 1 (White) draws first.",
+                initialMessage = "${linkName()} match connected ($deckCount-card deck) — Player 1 (White) draws first.",
                 enabledSpecialCards = enabledSpecials
             )
             _uiState.value = fresh
@@ -455,8 +524,8 @@ class UnoChessViewModel(
     }
 
     private fun handleIncomingLanMessage(line: String) {
-        val role = lanState.value.role
-        if (role == NetworkRole.LAN_GUEST) {
+        val role = snapshotSession().role
+        if (role.isGuest) {
             val decoded = LanStateCodec.decodeState(line) ?: return
             synchronized(stateLock) {
                 val prevOutcome = _uiState.value.outcome
@@ -467,7 +536,7 @@ class UnoChessViewModel(
                     recordMatchOutcomeIfNeeded(decoded.outcome)
                 }
             }
-        } else if (role == NetworkRole.LAN_HOST) {
+        } else if (role.isHost) {
             val action = LanStateCodec.decodeAction(line) ?: return
             synchronized(stateLock) {
                 val active = _uiState.value.activePlayer
@@ -475,7 +544,7 @@ class UnoChessViewModel(
                     LanAction.ResetGame -> {
                         val enabledSpecials = _hostEnabledSpecialCards.value
                         _uiState.value = createInitialState(
-                            initialMessage = "New LAN match started — Player 1 (White) draws first.",
+                            initialMessage = "New ${linkName()} match started — Player 1 (White) draws first.",
                             enabledSpecialCards = enabledSpecials
                         )
                         broadcastStateIfHost()
@@ -554,14 +623,14 @@ class UnoChessViewModel(
     }
 
     private fun broadcastStateIfHost() {
-        val lan = lanState.value
-        if (lan.role == NetworkRole.LAN_HOST && lan.isLanConnected) {
-            lanManager.sendLine(LanStateCodec.encodeState(_uiState.value))
+        val lan = snapshotSession()
+        if (lan.role.isHost && lan.isRemoteConnected) {
+            sendActiveLine(LanStateCodec.encodeState(_uiState.value))
         }
     }
 
     private fun isLocalPlayersTurn(): Boolean {
-        val lan = lanState.value
+        val lan = snapshotSession()
         return when (lan.role) {
             NetworkRole.PASS_AND_PLAY -> {
                 if (_opponentMode.value is OpponentMode.VsAi) {
@@ -570,8 +639,10 @@ class UnoChessViewModel(
                     true
                 }
             }
-            NetworkRole.LAN_HOST -> lan.isLanConnected && _uiState.value.activePlayer == PlayerId.PLAYER_1
-            NetworkRole.LAN_GUEST -> lan.isLanConnected && _uiState.value.activePlayer == PlayerId.PLAYER_2
+            NetworkRole.LAN_HOST, NetworkRole.ONLINE_HOST ->
+                lan.isRemoteConnected && _uiState.value.activePlayer == PlayerId.PLAYER_1
+            NetworkRole.LAN_GUEST, NetworkRole.ONLINE_GUEST ->
+                lan.isRemoteConnected && _uiState.value.activePlayer == PlayerId.PLAYER_2
         }
     }
 
@@ -653,19 +724,19 @@ class UnoChessViewModel(
     }
 
     fun forfeitGame() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         val current = _uiState.value
         if (current.outcome != null) return
 
-        if (lan.role == NetworkRole.LAN_GUEST && lan.isLanConnected) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.Forfeit))
+        if (lan.role.isGuest && lan.isRemoteConnected) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.Forfeit))
             return
         }
 
         cancelAiTurn()
         synchronized(stateLock) {
             val forfeiter = when {
-                lan.role == NetworkRole.LAN_HOST && lan.isLanConnected -> PlayerId.PLAYER_1
+                lan.role.isHost && lan.isRemoteConnected -> PlayerId.PLAYER_1
                 _opponentMode.value is OpponentMode.VsAi -> PlayerId.PLAYER_1
                 else -> _uiState.value.activePlayer
             }
@@ -722,18 +793,18 @@ class UnoChessViewModel(
     }
 
     fun resetGame() {
-        val lan = lanState.value
-        if (lan.role == NetworkRole.LAN_GUEST && lan.isLanConnected) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ResetGame))
+        val lan = snapshotSession()
+        if (lan.role.isGuest && lan.isRemoteConnected) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ResetGame))
             return
         }
         cancelAiTurn()
         synchronized(stateLock) {
             val mode = _opponentMode.value
-            val isHost = lan.role == NetworkRole.LAN_HOST
+            val isHost = lan.role.isHost
             val msg = when {
                 isHost ->
-                    "New LAN match started — Player 1 (White) draws first."
+                    "New ${linkName()} match started — Player 1 (White) draws first."
                 mode is OpponentMode.VsAi ->
                     "Match vs AI (${mode.difficulty.displayName}) — Player 1 (White) draws first."
                 else ->
@@ -764,10 +835,10 @@ class UnoChessViewModel(
     }
 
     fun drawCard() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.DrawCard))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.DrawCard))
             return
         }
         synchronized(stateLock) {
@@ -1772,10 +1843,10 @@ class UnoChessViewModel(
     }
 
     fun onSquareTapped(square: Square) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.TapSquare(square)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.TapSquare(square)))
             return
         }
         synchronized(stateLock) {
@@ -2101,10 +2172,10 @@ class UnoChessViewModel(
     }
 
     fun onConfirmPawnPromote(targetType: PieceType) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ConfirmPawnPromote(targetType)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ConfirmPawnPromote(targetType)))
             return
         }
         synchronized(stateLock) {
@@ -2241,10 +2312,10 @@ class UnoChessViewModel(
     }
 
     fun onConfirmSacrifice(recipeId: String) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ConfirmSacrifice(recipeId)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ConfirmSacrifice(recipeId)))
             return
         }
         synchronized(stateLock) {
@@ -2255,10 +2326,10 @@ class UnoChessViewModel(
     }
 
     fun onSkipSacrifice() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SkipSacrifice))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipSacrifice))
             return
         }
         synchronized(stateLock) {
@@ -2567,10 +2638,10 @@ class UnoChessViewModel(
     }
 
     fun onConfirmMerge(targetType: PieceType) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ConfirmMerge(targetType)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ConfirmMerge(targetType)))
             return
         }
         synchronized(stateLock) {
@@ -2581,10 +2652,10 @@ class UnoChessViewModel(
     }
 
     fun onClearMergeSelection() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ClearMergeSelection))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ClearMergeSelection))
             return
         }
         synchronized(stateLock) {
@@ -2594,10 +2665,10 @@ class UnoChessViewModel(
     }
 
     fun onSkipMerge() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SkipMerge))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipMerge))
             return
         }
         synchronized(stateLock) {
@@ -2923,10 +2994,10 @@ class UnoChessViewModel(
     }
 
     fun onPromotionSelected(pieceType: PieceType) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SelectPromotion(pieceType)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SelectPromotion(pieceType)))
             return
         }
         synchronized(stateLock) {
@@ -2984,10 +3055,10 @@ class UnoChessViewModel(
     }
 
     fun onPromotionCancelled() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.CancelPromotion))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.CancelPromotion))
             return
         }
         synchronized(stateLock) {
@@ -3311,10 +3382,10 @@ class UnoChessViewModel(
     }
 
     fun onCapturedPieceSelected(pieceId: Int) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SelectRevivePiece(pieceId)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SelectRevivePiece(pieceId)))
             return
         }
         synchronized(stateLock) {
@@ -3726,10 +3797,10 @@ class UnoChessViewModel(
     }
 
     fun onClearSwapSelection() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ClearSwapSelection))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ClearSwapSelection))
             return
         }
         synchronized(stateLock) {
@@ -3739,10 +3810,10 @@ class UnoChessViewModel(
     }
 
     fun onSkipSwap() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SkipSwap))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipSwap))
             return
         }
         synchronized(stateLock) {
@@ -3969,10 +4040,10 @@ class UnoChessViewModel(
     }
 
     fun onClearCloneSelection() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.ClearCloneSelection))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ClearCloneSelection))
             return
         }
         synchronized(stateLock) {
@@ -3982,10 +4053,10 @@ class UnoChessViewModel(
     }
 
     fun onSkipClone() {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SkipClone))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipClone))
             return
         }
         synchronized(stateLock) {
@@ -4121,10 +4192,10 @@ class UnoChessViewModel(
     }
 
     fun onSelectWildEffect(effect: SpecialCardKey) {
-        val lan = lanState.value
+        val lan = snapshotSession()
         if (!isLocalPlayersTurn()) return
-        if (lan.role == NetworkRole.LAN_GUEST) {
-            lanManager.sendLine(LanStateCodec.encodeAction(LanAction.SelectWildEffect(effect)))
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SelectWildEffect(effect)))
             return
         }
         synchronized(stateLock) {
@@ -4341,6 +4412,31 @@ class UnoChessViewModel(
     ): List<LogEntry> {
         val entry = LogEntry(id = nextLogId++, message = message, category = category)
         return (listOf(entry) + existing).take(60)
+    }
+}
+
+private class MergedSessionState(
+    private val lan: StateFlow<LanSessionState>,
+    private val online: StateFlow<LanSessionState>
+) : StateFlow<LanSessionState> {
+    private fun merge(lanState: LanSessionState, onlineState: LanSessionState): LanSessionState {
+        val active = if (onlineState.role.isOnline) onlineState else lanState
+        return active.copy(
+            openLobbies = onlineState.openLobbies,
+            isListingLobbies = onlineState.isListingLobbies
+        )
+    }
+
+    override val value: LanSessionState
+        get() = merge(lan.value, online.value)
+
+    override val replayCache: List<LanSessionState>
+        get() = listOf(value)
+
+    override suspend fun collect(collector: FlowCollector<LanSessionState>): Nothing {
+        combine(lan, online) { lanState, onlineState -> merge(lanState, onlineState) }
+            .collect(collector)
+        error("Session flow completed")
     }
 }
 

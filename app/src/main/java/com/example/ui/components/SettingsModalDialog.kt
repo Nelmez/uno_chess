@@ -51,6 +51,7 @@ import com.example.ui.theme.LocalUnoChessColors
 fun SettingsModalDialog(
     opponentMode: OpponentMode,
     isLanConnected: Boolean,
+    isOnlineMatch: Boolean = false,
     isDarkTheme: Boolean,
     soundEnabled: Boolean,
     cardTheme: UnoCardTheme,
@@ -174,6 +175,7 @@ fun SettingsModalDialog(
                         }
 
                         val modeDescription = when {
+                            isOnlineMatch -> "Currently in an online match. Picking a mode above starts a fresh local game."
                             isLanConnected -> "Currently in a Wi-Fi LAN match. Picking a mode above starts a fresh local game."
                             opponentMode is OpponentMode.PassAndPlay -> "2 players sharing this device. Switching starts a fresh match."
                             opponentMode is OpponentMode.VsAi -> "${opponentMode.difficulty.displayName}: ${opponentMode.difficulty.subtitle}. You play White."

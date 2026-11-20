@@ -22,11 +22,13 @@ object MatchStatsManager {
         outcome: GameOutcome,
         opponentMode: OpponentMode,
         isLanConnected: Boolean,
+        isOnline: Boolean = false,
         totalTurns: Int,
         winnerLabelOverride: String? = null,
         timestampMs: Long = System.currentTimeMillis()
     ): MatchStats {
         val modeLabel = when {
+            isOnline -> "Online"
             isLanConnected -> "Wi-Fi LAN"
             opponentMode is OpponentMode.VsAi -> "vs AI (${opponentMode.difficulty.displayName})"
             else -> "Pass & Play"

@@ -12,6 +12,7 @@ import com.example.model.UnoColor
 import com.example.network.LanAction
 import com.example.network.LanConnectionStatus
 import com.example.network.LanStateCodec
+import com.example.network.OnlineRoomRegistry
 import com.example.viewmodel.UnoChessViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -215,6 +216,93 @@ class LanMultiplayerTest {
             val port = hostVm.lanState.value.hostPort
 
             guestVm.joinLanHost("127.0.0.1", port)
+            awaitCondition {
+                hostVm.lanState.value.status == LanConnectionStatus.CONNECTED &&
+                    guestVm.lanState.value.status == LanConnectionStatus.CONNECTED &&
+                    guestVm.uiState.value.drawPile.size == 20
+            }
+
+            val expectedEnabled = setOf(SpecialCardKey.SHIELD, SpecialCardKey.CLONE)
+            assertEquals(expectedEnabled, hostVm.uiState.value.enabledSpecialCards)
+            assertEquals(expectedEnabled, guestVm.uiState.value.enabledSpecialCards)
+            assertEquals(20, hostVm.uiState.value.drawPile.size)
+            assertEquals(20, guestVm.uiState.value.drawPile.size)
+        } finally {
+            guestVm.leaveLanMatch()
+            hostVm.leaveLanMatch()
+        }
+    }
+
+    @Test
+    fun `host and guest synchronize moves and freeze over an online lobby`() {
+        val registry = OnlineRoomRegistry()
+        val deterministicDeck = listOf(
+            UnoCard(1, UnoColor.BLUE, UnoCardType.NumberCard(1)),
+            UnoCard(2, UnoColor.YELLOW, UnoCardType.Freeze),
+            UnoCard(3, UnoColor.GREEN, UnoCardType.NumberCard(2))
+        )
+        val hostVm = UnoChessViewModel(Random(1), onlineRooms = registry) { deterministicDeck }
+        val guestVm = UnoChessViewModel(Random(2), onlineRooms = registry)
+
+        try {
+            hostVm.createOnlineLobby("Host")
+            awaitCondition { hostVm.lanState.value.roomCode.length == 6 }
+            val code = hostVm.lanState.value.roomCode
+
+            guestVm.joinOnlineLobby(code, "Guest")
+            awaitCondition {
+                hostVm.lanState.value.status == LanConnectionStatus.CONNECTED &&
+                    guestVm.lanState.value.status == LanConnectionStatus.CONNECTED
+            }
+
+            guestVm.drawCard()
+            Thread.sleep(60)
+            assertEquals(TurnPhase.AWAITING_DRAW, hostVm.uiState.value.phase)
+
+            hostVm.drawCard()
+            hostVm.onSquareTapped(Square(6, 4))
+            hostVm.onSquareTapped(Square(4, 4))
+
+            awaitCondition {
+                guestVm.uiState.value.board[4][4]?.type == PieceType.PAWN &&
+                    guestVm.uiState.value.activePlayer == PlayerId.PLAYER_2 &&
+                    guestVm.uiState.value.phase == TurnPhase.AWAITING_DRAW
+            }
+
+            guestVm.drawCard()
+            awaitCondition {
+                hostVm.uiState.value.phase == TurnPhase.FREEZING &&
+                    guestVm.uiState.value.phase == TurnPhase.FREEZING
+            }
+
+            val whiteQueenId = hostVm.uiState.value.board[7][3]!!.id
+            guestVm.onSquareTapped(Square(7, 3))
+            awaitCondition {
+                hostVm.uiState.value.frozenPieceId == whiteQueenId &&
+                    guestVm.uiState.value.frozenPieceId == whiteQueenId &&
+                    guestVm.uiState.value.phase == TurnPhase.MOVING &&
+                    guestVm.uiState.value.movesRemaining == 1
+            }
+        } finally {
+            guestVm.leaveLanMatch()
+            hostVm.leaveLanMatch()
+        }
+    }
+
+    @Test
+    fun `host custom special card toggles sync deck to guest over an online lobby`() {
+        val registry = OnlineRoomRegistry()
+        val hostVm = UnoChessViewModel(Random(11), onlineRooms = registry)
+        val guestVm = UnoChessViewModel(Random(22), onlineRooms = registry)
+
+        try {
+            hostVm.setAllHostSpecialCards(false)
+            hostVm.toggleHostSpecialCard(SpecialCardKey.SHIELD)
+            hostVm.toggleHostSpecialCard(SpecialCardKey.CLONE)
+
+            hostVm.createOnlineLobby("Host")
+            awaitCondition { hostVm.lanState.value.roomCode.length == 6 }
+            guestVm.joinOnlineLobby(hostVm.lanState.value.roomCode, "Guest")
             awaitCondition {
                 hostVm.lanState.value.status == LanConnectionStatus.CONNECTED &&
                     guestVm.lanState.value.status == LanConnectionStatus.CONNECTED &&

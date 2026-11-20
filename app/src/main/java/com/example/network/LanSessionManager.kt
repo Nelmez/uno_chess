@@ -27,8 +27,28 @@ import java.net.Socket
 enum class NetworkRole {
     PASS_AND_PLAY,
     LAN_HOST,
-    LAN_GUEST
+    LAN_GUEST,
+    ONLINE_HOST,
+    ONLINE_GUEST;
+
+    val isHost: Boolean
+        get() = this == LAN_HOST || this == ONLINE_HOST
+
+    val isGuest: Boolean
+        get() = this == LAN_GUEST || this == ONLINE_GUEST
+
+    val isOnline: Boolean
+        get() = this == ONLINE_HOST || this == ONLINE_GUEST
+
+    val isLan: Boolean
+        get() = this == LAN_HOST || this == LAN_GUEST
 }
+
+data class OnlineLobbySummary(
+    val code: String,
+    val hostName: String,
+    val createdAtMs: Long
+)
 
 enum class LanConnectionStatus {
     OFFLINE,
@@ -52,10 +72,19 @@ data class LanSessionState(
     val peerAddress: String = "",
     val errorMessage: String? = null,
     val discoveredHosts: List<DiscoveredHost> = emptyList(),
-    val isDiscovering: Boolean = false
+    val isDiscovering: Boolean = false,
+    val roomCode: String = "",
+    val openLobbies: List<OnlineLobbySummary> = emptyList(),
+    val isListingLobbies: Boolean = false
 ) {
     val isLanConnected: Boolean
-        get() = status == LanConnectionStatus.CONNECTED && role != NetworkRole.PASS_AND_PLAY
+        get() = status == LanConnectionStatus.CONNECTED && role.isLan
+
+    val isOnlineConnected: Boolean
+        get() = status == LanConnectionStatus.CONNECTED && role.isOnline
+
+    val isRemoteConnected: Boolean
+        get() = isLanConnected || isOnlineConnected
 }
 
 class LanSessionManager(

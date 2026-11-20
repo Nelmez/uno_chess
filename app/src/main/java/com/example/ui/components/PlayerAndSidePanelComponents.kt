@@ -353,6 +353,7 @@ fun TurnStatusSummary(
     isLanConnected: Boolean,
     isAiThinking: Boolean,
     waitingForRemotePlayer: Boolean = false,
+    remoteChannelLabel: String = "Wi-Fi",
     modifier: Modifier = Modifier
 ) {
     val colors = LocalUnoChessColors.current
@@ -604,7 +605,7 @@ fun TurnStatusSummary(
         val hint = when {
             state.outcome != null -> null
             isAiThinking -> "Playing card & choosing moves"
-            waitingForRemotePlayer -> "Waiting for $activeLabel over Wi-Fi…"
+            waitingForRemotePlayer -> "Waiting for $activeLabel over $remoteChannelLabel…"
             state.phase == TurnPhase.AWAITING_DRAW -> "Tap deck to start turn"
             state.phase == TurnPhase.FREEZING -> "Tap a blue enemy piece, then move 1"
             state.phase == TurnPhase.MERGING -> if (state.selectedMergeSquares.isEmpty()) {

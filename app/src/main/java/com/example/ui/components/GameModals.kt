@@ -265,7 +265,7 @@ fun RulesModalDialog(
                     )
                     RuleItem(
                         title = "Check, Custom Decks & Modes",
-                        body = "Giving check ends your turn immediately. Starting a turn in check auto-discards special cards until you draw a Number card. When hosting a Wi-Fi LAN match, customize which special cards are in the deck! Tap the Flag button to Forfeit, and tap the Win Streak badge to view match history."
+                        body = "Giving check ends your turn immediately. Starting a turn in check auto-discards special cards until you draw a Number card. When hosting a Wi-Fi LAN match or an online lobby, customize which special cards are in the deck! Tap the Flag button to Forfeit, and tap the Win Streak badge to view match history."
                     )
                 }
 
