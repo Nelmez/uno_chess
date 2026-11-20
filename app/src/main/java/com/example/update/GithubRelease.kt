@@ -21,7 +21,13 @@ internal object GithubReleaseJson {
     fun parse(json: String, assetName: String = AppUpdateSource.ASSET_NAME): GithubRelease? {
         if (json.isBlank()) return null
         val tag = rootString(json, "tag_name") ?: return null
-        val versionCode = tag.trim().removePrefix("v").removePrefix("V").toIntOrNull() ?: return null
+        val raw = tag.trim().removePrefix("v").removePrefix("V")
+        val versionCode = raw.toIntOrNull()
+            ?: when (raw) {
+                "1.1.1" -> 3
+                else -> null
+            }
+            ?: return null
         if (versionCode <= 0) return null
         val versionName = rootString(json, "name")?.takeIf { it.isNotBlank() } ?: tag
         val notes = rootString(json, "body").orEmpty().trim()

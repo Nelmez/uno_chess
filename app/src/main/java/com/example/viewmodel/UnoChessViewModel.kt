@@ -119,7 +119,8 @@ class UnoChessViewModel(
     } else {
         FirestoreOnlineSession(
             onMessageReceived = ::handleIncomingLanMessage,
-            onGuestConnected = ::handleGuestConnected
+            onGuestConnected = ::handleGuestConnected,
+            contextProvider = { appContext }
         )
     }
     val lanState: StateFlow<LanSessionState> = MergedSessionState(

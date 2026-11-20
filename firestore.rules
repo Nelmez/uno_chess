@@ -1,48 +1,203 @@
 rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: /lobbies/{code}
+// Document ID: Room code (4 to 8 characters, uppercase alphanumeric)
+// Fields:
+//   - code: string (required, immutable) - Room code, must match document ID
+//   - hostId: string (required, immutable, 8 to 64 chars) - Host player UUID
+//   - hostName: string (required, immutable, 1 to 24 chars) - Host display name
+//   - status: string (required, enum: 'waiting' | 'playing' | 'closed') - Match status
+//   - createdAt: int (required, immutable) - Creation epoch milliseconds
+//   - hostSeenAt: int (required) - Host heartbeat epoch milliseconds
+//   - stateSeq: int (required, >= 0) - State sequence counter
+//   - guestId: string (optional, 8 to 64 chars) - Guest player UUID (present when status is 'playing' or 'closed')
+//   - guestName: string (optional, 1 to 24 chars) - Guest display name
+//   - guestSeenAt: int (optional) - Guest heartbeat epoch milliseconds
+//   - state: string (optional, <= 900,000 chars) - Serialized game state
+//
+// Collection: /lobbies/{code}/actions/{actionId}
+// Document ID: Auto-generated Firestore document ID
+// Fields:
+//   - fromId: string (required, 8 to 64 chars) - Must match parent lobby guestId
+//   - line: string (required, 1 to 900,000 chars) - Serialized move payload
+//   - createdAt: int (required) - Action creation epoch milliseconds
+//
+// Note: Authentication is anonymous player-id based (stored locally in SharedPreferences,
+// passed in document fields). Firebase Auth (request.auth) is not used.
+//
+// ===============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function lobby(code) {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isValidPlayerId(id) {
+      return id is string && id.size() >= 8 && id.size() <= 64;
+    }
+
+    function isValidDisplayName(name) {
+      return name is string && name.size() >= 1 && name.size() <= 24;
+    }
+
+    function isValidRoomCode(code) {
+      return code is string && code.matches('^[A-Z0-9]{4,8}$');
+    }
+
+    function parentLobby(code) {
       return get(/databases/$(database)/documents/lobbies/$(code)).data;
     }
 
-    function validPlayerId(id) {
-      return id is string && id.size() >= 8 && id.size() <= 64;
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Validates lobby document schema, field types, and size constraints
+    function isValidLobbyDoc(data) {
+      return data.keys().hasOnly(['code', 'hostId', 'hostName', 'status', 'createdAt', 'hostSeenAt', 'stateSeq', 'guestId', 'guestName', 'guestSeenAt', 'state'])
+        && data.keys().hasAll(['code', 'hostId', 'hostName', 'status', 'createdAt', 'hostSeenAt', 'stateSeq'])
+        && isValidRoomCode(data.code)
+        && isValidPlayerId(data.hostId)
+        && isValidDisplayName(data.hostName)
+        && data.status in ['waiting', 'playing', 'closed']
+        && data.createdAt is int
+        && data.hostSeenAt is int
+        && data.stateSeq is int && data.stateSeq >= 0
+        && (
+          !('guestId' in data) || data.guestId == null ||
+          isValidPlayerId(data.guestId)
+        )
+        && (
+          !('guestName' in data) || data.guestName == null ||
+          isValidDisplayName(data.guestName)
+        )
+        && (
+          !('guestSeenAt' in data) || data.guestSeenAt == null ||
+          data.guestSeenAt is int
+        )
+        && (
+          !('state' in data) || data.state == null ||
+          (data.state is string && data.state.size() <= 900000)
+        );
     }
+
+    // Validates action subcollection document schema and constraints
+    function isValidActionDoc(code, data) {
+      return exists(/databases/$(database)/documents/lobbies/$(code))
+        && parentLobby(code).status == "playing"
+        && ('guestId' in parentLobby(code))
+        && data.fromId == parentLobby(code).guestId
+        && data.keys().hasOnly(['fromId', 'line', 'createdAt'])
+        && data.keys().hasAll(['fromId', 'line', 'createdAt'])
+        && isValidPlayerId(data.fromId)
+        && data.line is string
+        && data.line.size() > 0
+        && data.line.size() < 900000
+        && data.createdAt is int;
+    }
+
+    // ===============================================================
+    // Transition Validation for /lobbies/{code} Updates
+    // ===============================================================
+
+    function areImmutableFieldsUnchanged(code) {
+      return request.resource.data.code == resource.data.code
+        && request.resource.data.code == code
+        && request.resource.data.hostId == resource.data.hostId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.hostName == resource.data.hostName;
+    }
+
+    // Transition A: Host heartbeat while waiting (or guest disconnect reset)
+    function isHostWaitingHeartbeat() {
+      return resource.data.status == "waiting"
+        && request.resource.data.status == "waiting"
+        && (!('guestId' in request.resource.data) || request.resource.data.guestId == null)
+        && (!('state' in request.resource.data) || request.resource.data.state == null)
+        && request.resource.data.stateSeq == resource.data.stateSeq;
+    }
+
+    // Transition B: Guest joining the waiting lobby
+    function isGuestJoining() {
+      return resource.data.status == "waiting"
+        && request.resource.data.status == "playing"
+        && (!('guestId' in resource.data) || resource.data.guestId == null)
+        && ('guestId' in request.resource.data)
+        && isValidPlayerId(request.resource.data.guestId)
+        && request.resource.data.guestId != resource.data.hostId
+        && ('guestName' in request.resource.data)
+        && isValidDisplayName(request.resource.data.guestName)
+        && ('guestSeenAt' in request.resource.data)
+        && request.resource.data.guestSeenAt is int
+        && (!('state' in request.resource.data) || request.resource.data.state == null)
+        && request.resource.data.stateSeq == resource.data.stateSeq;
+    }
+
+    // Transition C: Active gameplay updates (Host syncing state, Host/Guest heartbeat)
+    function isActiveGameplayUpdate() {
+      return resource.data.status == "playing"
+        && request.resource.data.status == "playing"
+        && ('guestId' in resource.data)
+        && ('guestId' in request.resource.data)
+        && request.resource.data.guestId == resource.data.guestId
+        && request.resource.data.get('guestName', null) == resource.data.get('guestName', null)
+        && request.resource.data.stateSeq is int
+        && request.resource.data.stateSeq >= resource.data.stateSeq
+        && (
+          !('state' in request.resource.data) ||
+          request.resource.data.state == null ||
+          (request.resource.data.state is string && request.resource.data.state.size() <= 900000)
+        );
+    }
+
+    // Transition D: Closing the lobby (Host cancelling or either player leaving)
+    function isLobbyClosing() {
+      return resource.data.status in ['waiting', 'playing']
+        && request.resource.data.status == "closed"
+        && (
+          request.resource.data.get('guestId', null) == resource.data.get('guestId', null)
+          || (resource.data.status == "waiting" && (!('guestId' in request.resource.data) || request.resource.data.guestId == null))
+        );
+    }
+
+    // ===============================================================
+    // Collection Match Rules
+    // ===============================================================
 
     match /lobbies/{code} {
       allow read: if true;
 
-      allow create: if validPlayerId(request.resource.data.hostId)
-        && request.resource.data.guestId == null
-        && request.resource.data.status == "waiting"
+      allow create: if isValidLobbyDoc(request.resource.data)
         && request.resource.data.code == code
-        && request.resource.data.hostName is string
-        && request.resource.data.hostName.size() > 0
-        && request.resource.data.hostName.size() <= 24
-        && request.resource.data.state == null
-        && request.resource.data.stateSeq == 0;
+        && request.resource.data.status == "waiting"
+        && request.resource.data.stateSeq == 0
+        && (!('guestId' in request.resource.data) || request.resource.data.guestId == null)
+        && (!('guestName' in request.resource.data) || request.resource.data.guestName == null)
+        && (!('guestSeenAt' in request.resource.data) || request.resource.data.guestSeenAt == null)
+        && (!('state' in request.resource.data) || request.resource.data.state == null);
 
-      allow update: if request.resource.data.hostId == resource.data.hostId
-        && request.resource.data.code == resource.data.code
+      allow update: if isValidLobbyDoc(request.resource.data)
+        && areImmutableFieldsUnchanged(code)
         && (
-          request.resource.data.guestId == resource.data.guestId
-          || (
-            resource.data.guestId == null
-            && validPlayerId(request.resource.data.guestId)
-            && request.resource.data.status == "playing"
-          )
+          isHostWaitingHeartbeat()
+          || isGuestJoining()
+          || isActiveGameplayUpdate()
+          || isLobbyClosing()
         );
 
       allow delete: if false;
 
       match /actions/{actionId} {
         allow read: if true;
-        allow create: if lobby(code).status == "playing"
-          && request.resource.data.fromId == lobby(code).guestId
-          && request.resource.data.line is string
-          && request.resource.data.line.size() > 0
-          && request.resource.data.line.size() < 900000
-          && request.resource.data.createdAt is int;
+
+        allow create: if isValidActionDoc(code, request.resource.data);
+
         allow update, delete: if false;
       }
     }

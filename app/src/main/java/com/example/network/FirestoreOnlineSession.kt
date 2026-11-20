@@ -23,9 +23,10 @@ import java.util.UUID
 
 class FirestoreOnlineSession(
     private val onMessageReceived: (String) -> Unit,
-    private val onGuestConnected: () -> Unit
+    private val onGuestConnected: () -> Unit,
+    private val contextProvider: (() -> Context?)? = null
 ) : OnlineMatchSession {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
     private val _sessionState = MutableStateFlow(LanSessionState())
     override val sessionState: StateFlow<LanSessionState> = _sessionState.asStateFlow()
 
@@ -172,8 +173,7 @@ class FirestoreOnlineSession(
                 uid = playerId()
                 val query = firestore().collection(LOBBIES)
                     .whereEqualTo("status", "waiting")
-                    .orderBy("createdAt", Query.Direction.DESCENDING)
-                    .limit(30)
+                    .limit(50)
                 listListener?.remove()
                 listListener = query.addSnapshotListener { snap, error ->
                     if (!watching) return@addSnapshotListener
@@ -192,7 +192,7 @@ class FirestoreOnlineSession(
                         val code = doc.getString("code") ?: doc.id
                         val hostName = doc.getString("hostName").orEmpty().ifBlank { "Host" }
                         OnlineLobbySummary(code, hostName, doc.getLong("createdAt") ?: 0L)
-                    }
+                    }.sortedByDescending { it.createdAtMs }
                     _sessionState.value = _sessionState.value.copy(
                         openLobbies = lobbies,
                         isListingLobbies = true,
@@ -253,7 +253,7 @@ class FirestoreOnlineSession(
                 if (_sessionState.value.status == LanConnectionStatus.CONNECTED) {
                     _sessionState.value = _sessionState.value.copy(
                         status = LanConnectionStatus.ERROR,
-                        errorMessage = "Connection lost."
+                        errorMessage = friendlyError(e)
                     )
                 }
             }
@@ -291,7 +291,10 @@ class FirestoreOnlineSession(
         }
         stopListeners()
         lobbyCode = ""
-        _sessionState.value = LanSessionState()
+        _sessionState.value = LanSessionState(
+            openLobbies = _sessionState.value.openLobbies,
+            isListingLobbies = watching
+        )
     }
 
     override fun shutdown() {
@@ -341,6 +344,10 @@ class FirestoreOnlineSession(
                         scope.launch { onGuestConnected() }
                     }
                 } else {
+                    val hostName = snap.getString("hostName").orEmpty().ifBlank { "Player 1" }
+                    if (_sessionState.value.peerAddress != hostName) {
+                        _sessionState.value = _sessionState.value.copy(peerAddress = hostName)
+                    }
                     val seq = snap.getLong("stateSeq") ?: 0L
                     val stateLine = snap.getString("state")
                     if (!stateLine.isNullOrEmpty() && seq != lastAppliedStateSeq) {
@@ -358,11 +365,13 @@ class FirestoreOnlineSession(
             .addSnapshotListener { snap, error ->
                 if (error != null) return@addSnapshotListener
                 val changes = snap?.documentChanges.orEmpty()
-                changes.forEach { change ->
-                    if (change.type != DocumentChange.Type.ADDED) return@forEach
-                    if (!seenActionIds.add(change.document.id)) return@forEach
-                    val line = change.document.getString("line") ?: return@forEach
-                    scope.launch { onMessageReceived(line) }
+                scope.launch {
+                    changes.forEach { change ->
+                        if (change.type != DocumentChange.Type.ADDED) return@forEach
+                        if (!seenActionIds.add(change.document.id)) return@forEach
+                        val line = change.document.getString("line") ?: return@forEach
+                        onMessageReceived(line)
+                    }
                 }
             }
     }
@@ -374,10 +383,19 @@ class FirestoreOnlineSession(
                 delay(HEARTBEAT_MS)
                 val field = if (asHost) "hostSeenAt" else "guestSeenAt"
                 runCatching {
-                    Tasks.await(
-                        firestore().collection(LOBBIES).document(code)
-                            .update(field, System.currentTimeMillis())
-                    )
+                    val ref = firestore().collection(LOBBIES).document(code)
+                    Tasks.await(ref.update(field, System.currentTimeMillis()))
+                    if (_sessionState.value.status == LanConnectionStatus.CONNECTED) {
+                        val snap = Tasks.await(ref.get())
+                        val peerField = if (asHost) "guestSeenAt" else "hostSeenAt"
+                        val peerSeen = snap.getLong(peerField) ?: 0L
+                        if (peerSeen > 0L && System.currentTimeMillis() - peerSeen > STALE_MS) {
+                            _sessionState.value = _sessionState.value.copy(
+                                status = LanConnectionStatus.ERROR,
+                                errorMessage = "Opponent timed out."
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -398,8 +416,13 @@ class FirestoreOnlineSession(
 
     private fun playerId(): String {
         if (uid.isNotEmpty()) return uid
-        val context = runCatching { FirebaseApp.getInstance().applicationContext }.getOrElse {
-            error("Online play is not configured yet.")
+        val context = contextProvider?.invoke()
+            ?: runCatching { FirebaseApp.getInstance().applicationContext }.getOrNull()
+            ?: error("Online play is not configured yet.")
+        runCatching {
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                FirebaseApp.initializeApp(context)
+            }
         }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val existing = prefs.getString(KEY_PLAYER_ID, null)

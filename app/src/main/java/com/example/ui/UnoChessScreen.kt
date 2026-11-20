@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wifi
@@ -531,6 +532,7 @@ private fun CompactPortraitLayout(
         ) {
             MinimalHeaderBar(
                 isLanConnected = lanState.isRemoteConnected,
+                isOnline = lanState.role.isOnline,
                 currentStreak = matchStats.currentStreak,
                 onOpenMatchLog = onOpenMatchLog,
                 onOpenSettings = onOpenSettings,
@@ -823,6 +825,7 @@ private fun ExpandedTabletopLayout(
         ) {
             MinimalHeaderBar(
                 isLanConnected = lanState.isRemoteConnected,
+                isOnline = lanState.role.isOnline,
                 currentStreak = matchStats.currentStreak,
                 onOpenMatchLog = onOpenMatchLog,
                 onOpenSettings = onOpenSettings,
@@ -944,6 +947,7 @@ private fun ExpandedTabletopLayout(
 @Composable
 private fun MinimalHeaderBar(
     isLanConnected: Boolean,
+    isOnline: Boolean = false,
     currentStreak: Int,
     onOpenMatchLog: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -1040,7 +1044,7 @@ private fun MinimalHeaderBar(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Rounded.Wifi,
+                        imageVector = if (isOnline) Icons.Rounded.Public else Icons.Rounded.Wifi,
                         contentDescription = stringResource(R.string.cd_lan_button),
                         tint = if (isLanConnected) colors.accentRevive else colors.inkSecondary,
                         modifier = Modifier.size(20.dp)

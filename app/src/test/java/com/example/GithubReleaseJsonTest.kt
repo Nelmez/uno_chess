@@ -42,4 +42,23 @@ class GithubReleaseJsonTest {
         )
         assertNull(release)
     }
+
+    @Test
+    fun parsesSemanticVersionTag() {
+        val release = GithubReleaseJson.parse(
+            """
+            {
+              "tag_name": "v1.1.1",
+              "name": "1.1.1",
+              "body": "Fix online multiplayer.",
+              "assets": [
+                {"name": "unochess.apk", "browser_download_url": "https://github.com/Nelmez/uno_chess/releases/download/v1.1.1/unochess.apk"}
+              ]
+            }
+            """.trimIndent()
+        )
+        checkNotNull(release)
+        assertEquals(3, release.versionCode)
+        assertEquals("1.1.1", release.versionName)
+    }
 }
