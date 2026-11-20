@@ -1,0 +1,6 @@
+{
+  "name": "UNO Chess",
+  "description": "A 2-player local pass-and-play strategy game combining full legal chess with a custom UNO card-draw mechanic featuring multi-move cards, piece revival, and side-swapping Reverse cards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
