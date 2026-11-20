@@ -1,8 +1,8 @@
 package com.example.network
 
+import android.content.Context
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class FirestoreOnlineSession(
     private val onMessageReceived: (String) -> Unit,
@@ -44,7 +45,7 @@ class FirestoreOnlineSession(
         scope.launch {
             try {
                 stopListeners()
-                uid = ensureSignedIn()
+                uid = playerId()
                 val name = displayName.trim().ifBlank { "Player 1" }.take(24)
                 val db = firestore()
                 var code = ""
@@ -113,7 +114,7 @@ class FirestoreOnlineSession(
         scope.launch {
             try {
                 stopListeners()
-                uid = ensureSignedIn()
+                uid = playerId()
                 val name = displayName.trim().ifBlank { "Player 2" }.take(24)
                 _sessionState.value = LanSessionState(
                     role = NetworkRole.ONLINE_GUEST,
@@ -168,7 +169,7 @@ class FirestoreOnlineSession(
         watching = true
         scope.launch {
             try {
-                uid = ensureSignedIn()
+                uid = playerId()
                 val query = firestore().collection(LOBBIES)
                     .whereEqualTo("status", "waiting")
                     .orderBy("createdAt", Query.Direction.DESCENDING)
@@ -395,19 +396,21 @@ class FirestoreOnlineSession(
         seenActionIds.clear()
     }
 
-    private fun ensureSignedIn(): String {
-        runCatching { FirebaseApp.getInstance() }.getOrElse {
+    private fun playerId(): String {
+        if (uid.isNotEmpty()) return uid
+        val context = runCatching { FirebaseApp.getInstance().applicationContext }.getOrElse {
             error("Online play is not configured yet.")
         }
-        val auth = FirebaseAuth.getInstance()
-        auth.currentUser?.uid?.let {
-            uid = it
-            return it
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getString(KEY_PLAYER_ID, null)
+        if (!existing.isNullOrBlank()) {
+            uid = existing
+            return existing
         }
-        val result = Tasks.await(auth.signInAnonymously())
-        val id = result.user?.uid ?: error("Could not sign in.")
-        uid = id
-        return id
+        val created = UUID.randomUUID().toString()
+        prefs.edit().putString(KEY_PLAYER_ID, created).apply()
+        uid = created
+        return created
     }
 
     private fun firestore(): FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -417,6 +420,8 @@ class FirestoreOnlineSession(
         return when {
             message.contains("not configured", ignoreCase = true) ->
                 "Online play needs Firebase configured on this build."
+            message.contains("CONFIGURATION_NOT_FOUND", ignoreCase = true) ->
+                "Online play is not configured on the server yet."
             message.contains("PERMISSION_DENIED", ignoreCase = true) ->
                 "Lobby server rejected the request."
             message.isBlank() -> "Online lobby failed."
@@ -433,6 +438,8 @@ class FirestoreOnlineSession(
     private companion object {
         const val LOBBIES = "lobbies"
         const val ACTIONS = "actions"
+        const val PREFS_NAME = "uno_chess_online"
+        const val KEY_PLAYER_ID = "player_id"
         const val HEARTBEAT_MS = 20_000L
         const val STALE_MS = 120_000L
         const val ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

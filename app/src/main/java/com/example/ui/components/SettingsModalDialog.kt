@@ -59,6 +59,10 @@ fun SettingsModalDialog(
     onSelectDarkTheme: (Boolean) -> Unit,
     onSelectSoundEnabled: (Boolean) -> Unit,
     onSelectCardTheme: (UnoCardTheme) -> Unit,
+    appVersionName: String = "",
+    updateStatus: String? = null,
+    checkingForUpdate: Boolean = false,
+    onCheckForUpdate: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val colors = LocalUnoChessColors.current
@@ -319,6 +323,43 @@ fun SettingsModalDialog(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
+                            }
+                        }
+                    }
+
+                    if (appVersionName.isNotEmpty()) {
+                        HorizontalDivider(color = colors.hairline)
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(R.string.settings_updates_section),
+                                style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_version, appVersionName),
+                                style = MaterialTheme.typography.bodyMedium.copy(color = colors.inkPrimary)
+                            )
+                            if (!updateStatus.isNullOrBlank()) {
+                                Text(
+                                    text = updateStatus,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted)
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.surfaceSubtle)
+                                    .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
+                                    .testTag("check_updates_button")
+                                    .clickable(enabled = !checkingForUpdate, onClick = onCheckForUpdate),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.action_check_updates),
+                                    style = MaterialTheme.typography.labelLarge.copy(color = colors.inkPrimary)
+                                )
                             }
                         }
                     }

@@ -46,7 +46,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -90,7 +93,18 @@ import com.example.ui.components.PromotionPickerDialog
 import com.example.ui.components.ResetConfirmDialog
 import com.example.ui.components.RulesModalDialog
 import com.example.ui.components.SacrificeActionCard
+import android.os.Handler
+import android.os.Looper
+import com.example.BuildConfig
+import com.example.ui.components.AppUpdateDialog
 import com.example.ui.components.SettingsModalDialog
+import com.example.update.AppUpdateInstaller
+import com.example.update.GithubAppUpdateChecker
+import com.example.update.GithubRelease
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.ui.components.SidePanelCapturedTraysCard
 import com.example.ui.components.SwapActionCard
 import com.example.ui.components.TurnStatusSummary
@@ -126,6 +140,86 @@ fun UnoChessScreen(
     var showSettingsModal by rememberSaveable { mutableStateOf(false) }
     var showMatchLogModal by rememberSaveable { mutableStateOf(false) }
     var celebrationDismissed by rememberSaveable { mutableStateOf(false) }
+    var pendingUpdate by remember { mutableStateOf<GithubRelease?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var downloadedApk by remember { mutableStateOf<File?>(null) }
+    var downloadingUpdate by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableFloatStateOf(0f) }
+    var checkingForUpdate by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
+    var updateDialogMessage by remember { mutableStateOf<String?>(null) }
+    val updateScope = rememberCoroutineScope()
+    val updateChecker = remember { GithubAppUpdateChecker() }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val latestVersionText = stringResource(R.string.update_latest)
+    val checkFailedText = stringResource(R.string.update_check_failed)
+    val downloadFailedText = stringResource(R.string.update_download_failed)
+    val installPermissionText = stringResource(R.string.update_install_permission)
+
+    fun checkForUpdate(manual: Boolean) {
+        if (checkingForUpdate || downloadingUpdate) return
+        updateScope.launch {
+            checkingForUpdate = true
+            if (manual) updateStatus = null
+            val result = runCatching {
+                withContext(Dispatchers.IO) { updateChecker.check(BuildConfig.VERSION_CODE) }
+            }
+            checkingForUpdate = false
+            val release = result.getOrNull()
+            when {
+                release != null -> {
+                    pendingUpdate = release
+                    downloadedApk = null
+                    downloadProgress = 0f
+                    updateDialogMessage = null
+                    updateStatus = null
+                    showUpdateDialog = true
+                }
+                manual && result.isFailure -> updateStatus = checkFailedText
+                manual -> updateStatus = latestVersionText
+            }
+        }
+    }
+
+    fun installPendingUpdate() {
+        val release = pendingUpdate ?: return
+        val ready = downloadedApk
+        if (ready != null) {
+            if (!AppUpdateInstaller.canInstall(context)) {
+                updateDialogMessage = installPermissionText
+                AppUpdateInstaller.openInstallPermissionSettings(context)
+                return
+            }
+            AppUpdateInstaller.install(context, ready)
+            return
+        }
+        updateScope.launch {
+            downloadingUpdate = true
+            updateDialogMessage = null
+            downloadProgress = 0f
+            val file = runCatching {
+                withContext(Dispatchers.IO) {
+                    AppUpdateInstaller.download(context, release.apkUrl) { progress ->
+                        mainHandler.post { downloadProgress = progress }
+                    }
+                }
+            }
+            downloadingUpdate = false
+            file.onSuccess { downloadedApk = it }
+            file.onFailure { updateDialogMessage = downloadFailedText }
+            val apk = file.getOrNull() ?: return@launch
+            if (!AppUpdateInstaller.canInstall(context)) {
+                updateDialogMessage = installPermissionText
+                AppUpdateInstaller.openInstallPermissionSettings(context)
+                return@launch
+            }
+            AppUpdateInstaller.install(context, apk)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        checkForUpdate(manual = false)
+    }
 
     LaunchedEffect(state.outcome) {
         celebrationDismissed = false
@@ -297,8 +391,27 @@ fun UnoChessScreen(
             onSelectDarkTheme = { dark -> viewModel.setDarkTheme(context, dark) },
             onSelectSoundEnabled = { enabled -> viewModel.setSoundEnabled(context, enabled) },
             onSelectCardTheme = { theme -> viewModel.setCardTheme(context, theme) },
+            appVersionName = BuildConfig.VERSION_NAME,
+            updateStatus = updateStatus,
+            checkingForUpdate = checkingForUpdate,
+            onCheckForUpdate = { checkForUpdate(manual = true) },
             onDismiss = { showSettingsModal = false }
         )
+    }
+
+    if (showUpdateDialog) {
+        pendingUpdate?.let { release ->
+            AppUpdateDialog(
+                versionName = release.versionName,
+                notes = release.notes,
+                downloading = downloadingUpdate,
+                progress = downloadProgress,
+                readyToInstall = downloadedApk != null,
+                statusMessage = updateDialogMessage,
+                onInstall = ::installPendingUpdate,
+                onDismiss = { showUpdateDialog = false }
+            )
+        }
     }
 
     if (showLanDialog) {

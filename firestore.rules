@@ -1,19 +1,18 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
     function lobby(code) {
       return get(/databases/$(database)/documents/lobbies/$(code)).data;
     }
 
-    match /lobbies/{code} {
-      allow read: if signedIn();
+    function validPlayerId(id) {
+      return id is string && id.size() >= 8 && id.size() <= 64;
+    }
 
-      allow create: if signedIn()
-        && request.resource.data.hostId == request.auth.uid
+    match /lobbies/{code} {
+      allow read: if true;
+
+      allow create: if validPlayerId(request.resource.data.hostId)
         && request.resource.data.guestId == null
         && request.resource.data.status == "waiting"
         && request.resource.data.code == code
@@ -23,43 +22,23 @@ service cloud.firestore {
         && request.resource.data.state == null
         && request.resource.data.stateSeq == 0;
 
-      allow update: if signedIn() && (
-        (
-          resource.data.hostId == request.auth.uid
-          && request.resource.data.hostId == resource.data.hostId
-        )
-        || (
-          resource.data.status == "waiting"
-          && resource.data.guestId == null
-          && request.resource.data.guestId == request.auth.uid
-          && request.resource.data.hostId == resource.data.hostId
-          && request.resource.data.status == "playing"
-          && request.resource.data.code == resource.data.code
-          && request.resource.data.state == resource.data.state
-          && request.resource.data.stateSeq == resource.data.stateSeq
-        )
-        || (
-          resource.data.guestId == request.auth.uid
-          && request.resource.data.hostId == resource.data.hostId
-          && request.resource.data.guestId == resource.data.guestId
-          && request.resource.data.code == resource.data.code
-          && request.resource.data.state == resource.data.state
-          && request.resource.data.stateSeq == resource.data.stateSeq
-          && (
-            request.resource.data.status == resource.data.status
-            || request.resource.data.status == "closed"
+      allow update: if request.resource.data.hostId == resource.data.hostId
+        && request.resource.data.code == resource.data.code
+        && (
+          request.resource.data.guestId == resource.data.guestId
+          || (
+            resource.data.guestId == null
+            && validPlayerId(request.resource.data.guestId)
+            && request.resource.data.status == "playing"
           )
-        )
-      );
+        );
 
       allow delete: if false;
 
       match /actions/{actionId} {
-        allow read: if signedIn();
-        allow create: if signedIn()
-          && lobby(code).guestId == request.auth.uid
-          && lobby(code).status == "playing"
-          && request.resource.data.fromId == request.auth.uid
+        allow read: if true;
+        allow create: if lobby(code).status == "playing"
+          && request.resource.data.fromId == lobby(code).guestId
           && request.resource.data.line is string
           && request.resource.data.line.size() > 0
           && request.resource.data.line.size() < 900000
