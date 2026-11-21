@@ -16,7 +16,7 @@ android {
     applicationId = "com.aistudio.unochess.kvnrqp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 5
+    versionCode = 6
     versionName = "1.4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

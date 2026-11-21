@@ -78,10 +78,6 @@ class FirestoreOnlineSession(
                 val db = firestore()
                 ensureNetworkEnabled(db)
 
-                val txOptions = TransactionOptions.Builder()
-                    .setMaxAttempts(2)
-                    .build()
-
                 var createdCode = ""
                 var lastCollisionError: Exception? = null
                 repeat(MAX_CODE_ATTEMPTS) {
@@ -100,7 +96,7 @@ class FirestoreOnlineSession(
                     try {
                         val ref = db.collection(LOBBIES).document(candidate)
                         withTimeout(SERVER_TIMEOUT_MS) {
-                            db.runTransaction(txOptions) { tx ->
+                            db.runTransaction { tx ->
                                 if (tx.get(ref).exists()) {
                                     throw LobbyCodeTakenException()
                                 }
@@ -195,13 +191,10 @@ class FirestoreOnlineSession(
                 val db = firestore()
                 ensureNetworkEnabled(db)
 
-                val txOptions = TransactionOptions.Builder()
-                    .setMaxAttempts(2)
-                    .build()
                 val ref = db.collection(LOBBIES).document(normalized)
 
                 withTimeout(SERVER_TIMEOUT_MS) {
-                    db.runTransaction(txOptions) { tx ->
+                    db.runTransaction { tx ->
                         val snap = tx.get(ref)
                         if (!snap.exists()) error("Lobby $normalized was not found.")
                         val status = snap.getString("status")
@@ -294,24 +287,6 @@ class FirestoreOnlineSession(
                     .whereEqualTo("status", "waiting")
                     .limit(50)
 
-                // Verify live server reachability with a bounded timeout so the UI never spins forever.
-                val initialSnap = withTimeout(LOBBY_PROBE_TIMEOUT_MS) {
-                    query.get(Source.SERVER).await()
-                }
-                if (!watching) return@launch
-
-                val initialLobbies = parseOpenLobbies(initialSnap.documents, playerId)
-                _sessionState.value = _sessionState.value.copy(
-                    openLobbies = initialLobbies,
-                    isListingLobbies = false,
-                    isOnlineServerReachable = true,
-                    onlineErrorMessage = if (_sessionState.value.status == LanConnectionStatus.ERROR && _sessionState.value.role.isOnline) {
-                        _sessionState.value.onlineErrorMessage
-                    } else {
-                        null
-                    }
-                )
-
                 listListener?.remove()
                 listListener = query.addSnapshotListener { snap, error ->
                     if (!watching) return@addSnapshotListener
@@ -337,15 +312,13 @@ class FirestoreOnlineSession(
                         }
                     )
                 }
-            } catch (e: CancellationException) {
-                if (e is TimeoutCancellationException && watching) {
+
+                // Bounded fallback so the loading spinner doesn't spin indefinitely if offline
+                delay(LOBBY_PROBE_TIMEOUT_MS)
+                if (watching && _sessionState.value.isListingLobbies) {
                     _sessionState.value = _sessionState.value.copy(
-                        isListingLobbies = false,
-                        isOnlineServerReachable = false,
-                        onlineErrorMessage = friendlyError(e)
+                        isListingLobbies = false
                     )
-                } else {
-                    throw e
                 }
             } catch (e: Exception) {
                 if (!watching) return@launch
@@ -570,7 +543,7 @@ class FirestoreOnlineSession(
                         ref.update(field, System.currentTimeMillis()).await()
                     }
                     if (_sessionState.value.status == LanConnectionStatus.CONNECTED) {
-                        val snap = withTimeout(8_000L) { ref.get(Source.SERVER).await() }
+                        val snap = withTimeout(8_000L) { ref.get().await() }
                         val peerField = if (asHost) "guestSeenAt" else "hostSeenAt"
                         val peerSeen = snap.getLong(peerField) ?: 0L
                         val nowNanos = System.nanoTime()
