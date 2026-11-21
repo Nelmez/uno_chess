@@ -18,3 +18,4 @@ local.properties
 debug.keystore
 app/google-services.json
 /native/target
+*.apk

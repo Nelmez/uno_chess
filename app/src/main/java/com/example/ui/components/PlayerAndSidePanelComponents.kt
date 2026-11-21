@@ -606,7 +606,15 @@ fun TurnStatusSummary(
             state.outcome != null -> null
             isAiThinking -> "Playing card & choosing moves"
             waitingForRemotePlayer -> "Waiting for $activeLabel over $remoteChannelLabel…"
-            state.phase == TurnPhase.AWAITING_DRAW -> "Tap deck to start turn"
+            state.phase == TurnPhase.AWAITING_DRAW -> {
+                val pity = state.movePityCount[state.activePlayer] ?: 0
+                when {
+                    pity == 1 -> "Tap deck to draw (Move chance boosted!)"
+                    pity == 2 -> "Tap deck to draw (2+ Moves 40% pity!)"
+                    pity >= 3 -> "Tap deck to draw (3 & 4 Moves boosted pity!)"
+                    else -> "Tap deck to start turn"
+                }
+            }
             state.phase == TurnPhase.FREEZING -> "Tap a blue enemy piece, then move 1"
             state.phase == TurnPhase.MERGING -> if (state.selectedMergeSquares.isEmpty()) {
                 "Tap 1+ own pieces to swap or merge"
@@ -647,6 +655,7 @@ fun TurnStatusSummary(
                 style = MaterialTheme.typography.labelSmall.copy(
                     color = when {
                         isCheck || state.phase == TurnPhase.SUICIDING -> colors.accentCheck
+                        state.phase == TurnPhase.AWAITING_DRAW && (state.movePityCount[state.activePlayer] ?: 0) > 0 -> colors.accentShield
                         state.phase == TurnPhase.FREEZING -> colors.accentFreeze
                         state.phase == TurnPhase.SHIELDING -> colors.accentShield
                         state.phase == TurnPhase.SWAPPING -> colors.accentSwap

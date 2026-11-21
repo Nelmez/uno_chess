@@ -34,6 +34,8 @@ import com.example.model.TurnPhase
 import com.example.model.UnoCard
 import com.example.model.UnoCardTheme
 import com.example.model.UnoCardType
+import com.example.model.grantsMove
+import com.example.model.isNumberCard
 import com.example.network.FirestoreOnlineSession
 import com.example.network.InMemoryOnlineSession
 import com.example.network.LanAction
@@ -720,7 +722,11 @@ class UnoChessViewModel(
             outcome = null,
             castlingRights = CastlingRights(),
             enPassantTarget = null,
-            enPassantOwner = null
+            enPassantOwner = null,
+            movePityCount = mapOf(
+                PlayerId.PLAYER_1 to 0,
+                PlayerId.PLAYER_2 to 0
+            )
         )
     }
 
@@ -953,6 +959,8 @@ class UnoChessViewModel(
 
         turnsPlayedInMatch++
 
+        val playerPity = current.movePityCount[activePlayer] ?: 0
+
         var drawPile = current.drawPile.toMutableList()
         var discardPile = current.discardPile.toMutableList()
         current.activeCard?.let { prev ->
@@ -975,7 +983,13 @@ class UnoChessViewModel(
                 logs = prependLog(logs, "UNO deck reshuffled.", LogCategory.SYSTEM)
             }
 
-            val drawn = drawPile.removeAt(0)
+            val drawn = UnoDeck.drawCardWithPity(
+                drawPile = drawPile,
+                discardPile = discardPile,
+                pityCount = playerPity,
+                enabledSpecials = current.enabledSpecialCards,
+                random = random
+            )
 
             // Edge case 1: Starting a turn in check — discard action cards and redraw until Number card
             if (inCheckAtStart && drawn.type !is UnoCardType.NumberCard) {
@@ -994,12 +1008,19 @@ class UnoChessViewModel(
                 continue
             }
 
+            val nextPityMap = if (drawn.grantsMove) {
+                current.movePityCount + (activePlayer to 0)
+            } else {
+                current.movePityCount + (activePlayer to playerPity + 1)
+            }
+
             when (val type = drawn.type) {
                 is UnoCardType.NumberCard -> {
                     val moveWord = if (type.moves == 1) "1 move" else "${type.moves} moves"
+                    val pityNote = if (playerPity > 0) " (Pity reset)" else ""
                     logs = prependLog(
                         logs,
-                        "$activeLabel (${activeColor.displayName}) drew ${type.moves} ($moveWord).",
+                        "$activeLabel (${activeColor.displayName}) drew ${type.moves} ($moveWord)$pityNote.",
                         LogCategory.CARD
                     )
                     _uiState.value = current.copy(
@@ -1029,7 +1050,8 @@ class UnoChessViewModel(
                         validReviveSquares = emptySet(),
                         checkedKingSquare = if (inCheckAtStart) ChessEngine.findKing(current.board, activeColor) else null,
                         noticeBanner = notice,
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1088,7 +1110,8 @@ class UnoChessViewModel(
                                 message = "Revive! No captured pieces — tap a green square to place a Pawn.",
                                 isAlert = false
                             ),
-                            gameLog = logs
+                            gameLog = logs,
+                            movePityCount = nextPityMap
                         )
                         return
                     } else {
@@ -1152,7 +1175,8 @@ class UnoChessViewModel(
                                 message = "Revive! Pick a captured piece & tap a green Pawn to transform it.",
                                 isAlert = false
                             ),
-                            gameLog = logs
+                            gameLog = logs,
+                            movePityCount = nextPityMap
                         )
                         return
                     }
@@ -1211,7 +1235,8 @@ class UnoChessViewModel(
                             message = "Freeze! Tap a blue-outlined enemy piece to lock it, then make 1 move.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1272,7 +1297,8 @@ class UnoChessViewModel(
                             message = "Merge! Tap 1+ of your pieces to swap or combine.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1334,7 +1360,8 @@ class UnoChessViewModel(
                             message = "Sacrifice! Pick a split below (or tap another highlighted piece).",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1410,7 +1437,8 @@ class UnoChessViewModel(
                             message = "Hijack! Tap an opponent piece and make 1 move with it.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1472,7 +1500,8 @@ class UnoChessViewModel(
                             message = "Promote! Pick Knight or Bishop below (or tap another pawn).",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1511,7 +1540,8 @@ class UnoChessViewModel(
                             legalMovesForSelected = emptyList(),
                             noticeBanner = NoticeBanner(id = nextNoticeId++, message = msg, isAlert = true),
                             gameLog = logs,
-                            outcome = outcome
+                            outcome = outcome,
+                            movePityCount = nextPityMap
                         )
                         recordMatchOutcomeIfNeeded(outcome)
                         return
@@ -1568,7 +1598,8 @@ class UnoChessViewModel(
                             message = "Suicide! Tap 1 of your highlighted pieces to remove it.",
                             isAlert = true
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1631,7 +1662,8 @@ class UnoChessViewModel(
                             message = "Shield! Tap 1 of your highlighted pieces to protect it, then make 1 move.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1698,7 +1730,8 @@ class UnoChessViewModel(
                             message = "Swap! Tap 2 of your highlighted pieces to exchange their squares.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1765,7 +1798,8 @@ class UnoChessViewModel(
                             message = "Clone! Tap a highlighted Pawn, Knight, or Bishop, then an open square.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }
@@ -1835,7 +1869,8 @@ class UnoChessViewModel(
                             message = "Wild Card! Pick any special card effect below.",
                             isAlert = false
                         ),
-                        gameLog = logs
+                        gameLog = logs,
+                        movePityCount = nextPityMap
                     )
                     return
                 }

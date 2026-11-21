@@ -60,6 +60,8 @@ class LanMultiplayerTest {
         assertEquals(afterFreeze.frozenPieceId, decodedAfterFreeze!!.frozenPieceId)
         assertEquals(PieceColor.BLACK, decodedAfterFreeze.frozenOwner)
         assertEquals(TurnPhase.MOVING, decodedAfterFreeze.phase)
+        assertEquals(0, decodedFreeze.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(0, decodedFreeze.movePityCount[PlayerId.PLAYER_2])
 
         val actions = listOf(
             LanAction.DrawCard,
@@ -318,5 +320,22 @@ class LanMultiplayerTest {
             guestVm.leaveLanMatch()
             hostVm.leaveLanMatch()
         }
+    }
+
+    @Test
+    fun `lan state codec preserves move pity counts across serialization roundtrip`() {
+        val vm = UnoChessViewModel(Random(42))
+        val baseState = vm.uiState.value.copy(
+            movePityCount = mapOf(
+                PlayerId.PLAYER_1 to 2,
+                PlayerId.PLAYER_2 to 1
+            )
+        )
+        val encoded = LanStateCodec.encodeState(baseState)
+        val decoded = LanStateCodec.decodeState(encoded)
+
+        assertNotNull(decoded)
+        assertEquals(2, decoded!!.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(1, decoded.movePityCount[PlayerId.PLAYER_2])
     }
 }

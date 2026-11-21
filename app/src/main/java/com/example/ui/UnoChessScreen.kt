@@ -628,6 +628,7 @@ private fun CompactPortraitLayout(
                         drawRevision = state.drawRevision,
                         cardTheme = cardTheme,
                         onDrawClick = onDrawCard,
+                        pityCount = state.movePityCount[state.activePlayer] ?: 0,
                         cardWidth = deckCardWidth
                     )
 
@@ -868,6 +869,7 @@ private fun ExpandedTabletopLayout(
                         drawRevision = state.drawRevision,
                         cardTheme = cardTheme,
                         onDrawClick = onDrawCard,
+                        pityCount = state.movePityCount[state.activePlayer] ?: 0,
                         cardWidth = 72.dp
                     )
                     Row(

@@ -116,4 +116,179 @@ object UnoDeck {
 
         return cards.shuffled(random)
     }
+
+    data class PityChances(
+        val oneMovePercent: Int,
+        val twoMovesPercent: Int,
+        val threeMovesPercent: Int,
+        val fourMovesPercent: Int,
+        val naturalDrawPercent: Int
+    ) {
+        val totalMovePercent: Int
+            get() = oneMovePercent + twoMovesPercent + threeMovesPercent + fourMovesPercent
+    }
+
+    /**
+     * Card draw pity system:
+     * When a player draws non-move cards in consecutive turns, their chance of drawing
+     * a move card (NumberCard) progressively escalates:
+     * - Pity 0: Natural deck draw (standard ~42% move cards in a fresh 38-card deck).
+     * - Pity 1 (1 non-move card): 2-move chance boosted (25%), total move chance boosted to ~74%.
+     * - Pity 2 (e.g. Merge & Revive): 2-move chance is 40% (user requirement), total move chance ~94%.
+     * - Pity 3 (3 non-move cards): 3-move (40%) and 4-move (35%) cards dominate (75% combined, 100% move guaranteed).
+     * - Pity 4+: 4-move (50%) and 3-move (40%) cards dominate (90% combined, 100% move guaranteed).
+     */
+    fun getPityChances(pityCount: Int): PityChances = when {
+        pityCount <= 0 -> PityChances(
+            oneMovePercent = 0,
+            twoMovesPercent = 0,
+            threeMovesPercent = 0,
+            fourMovesPercent = 0,
+            naturalDrawPercent = 100
+        )
+        pityCount == 1 -> PityChances(
+            oneMovePercent = 15,
+            twoMovesPercent = 25,
+            threeMovesPercent = 10,
+            fourMovesPercent = 5,
+            naturalDrawPercent = 45
+        )
+        pityCount == 2 -> PityChances(
+            oneMovePercent = 10,
+            twoMovesPercent = 40,
+            threeMovesPercent = 25,
+            fourMovesPercent = 15,
+            naturalDrawPercent = 10
+        )
+        pityCount == 3 -> PityChances(
+            oneMovePercent = 5,
+            twoMovesPercent = 20,
+            threeMovesPercent = 40,
+            fourMovesPercent = 35,
+            naturalDrawPercent = 0
+        )
+        else -> PityChances(
+            oneMovePercent = 0,
+            twoMovesPercent = 10,
+            threeMovesPercent = 40,
+            fourMovesPercent = 50,
+            naturalDrawPercent = 0
+        )
+    }
+
+    /**
+     * Rolls whether a pity-boosted move card should be selected, and returns the target move count (1..4)
+     * or null if the draw should proceed as a natural deck draw.
+     */
+    fun rollPityTarget(pityCount: Int, random: Random = Random.Default): Int? {
+        if (pityCount <= 0) return null
+        val chances = getPityChances(pityCount)
+        if (chances.naturalDrawPercent >= 100) return null
+
+        val roll = random.nextInt(100) // 0..99
+        var cumulative = 0
+
+        if (pityCount >= 4) {
+            cumulative += chances.fourMovesPercent
+            if (roll < cumulative) return 4
+
+            cumulative += chances.threeMovesPercent
+            if (roll < cumulative) return 3
+
+            cumulative += chances.twoMovesPercent
+            if (roll < cumulative) return 2
+
+            cumulative += chances.oneMovePercent
+            if (roll < cumulative) return 1
+        } else if (pityCount == 3) {
+            cumulative += chances.threeMovesPercent
+            if (roll < cumulative) return 3
+
+            cumulative += chances.fourMovesPercent
+            if (roll < cumulative) return 4
+
+            cumulative += chances.twoMovesPercent
+            if (roll < cumulative) return 2
+
+            cumulative += chances.oneMovePercent
+            if (roll < cumulative) return 1
+        } else {
+            cumulative += chances.twoMovesPercent
+            if (roll < cumulative) return 2
+
+            cumulative += chances.threeMovesPercent
+            if (roll < cumulative) return 3
+
+            cumulative += chances.fourMovesPercent
+            if (roll < cumulative) return 4
+
+            cumulative += chances.oneMovePercent
+            if (roll < cumulative) return 1
+        }
+
+        return null
+    }
+
+    /**
+     * Draws a card from [drawPile] respecting the player's [pityCount].
+     * If pity rolls a target move count, extracts that card from [drawPile] (or reshuffles [discardPile]
+     * if the card is only in the discard pile). This guarantees cards are never duplicated or synthesized
+     * out of thin air, preserving deck conservation.
+     */
+    fun drawCardWithPity(
+        drawPile: MutableList<UnoCard>,
+        discardPile: MutableList<UnoCard>,
+        pityCount: Int,
+        enabledSpecials: Set<SpecialCardKey>,
+        random: Random = Random.Default
+    ): UnoCard {
+        if (drawPile.isEmpty()) {
+            if (discardPile.isEmpty()) {
+                drawPile.addAll(createShuffledDeck(random, enabledSpecials))
+            } else {
+                drawPile.addAll(discardPile.shuffled(random))
+                discardPile.clear()
+            }
+        }
+
+        val targetMoves = rollPityTarget(pityCount, random)
+        if (targetMoves != null) {
+            val targetIndex = drawPile.indexOfFirst {
+                val type = it.type
+                type is UnoCardType.NumberCard && type.moves == targetMoves
+            }
+            if (targetIndex != -1) {
+                return drawPile.removeAt(targetIndex)
+            }
+            val discardTargetIndex = discardPile.indexOfFirst {
+                val type = it.type
+                type is UnoCardType.NumberCard && type.moves == targetMoves
+            }
+            if (discardTargetIndex != -1) {
+                drawPile.addAll(discardPile.shuffled(random))
+                discardPile.clear()
+                val reshuffledIndex = drawPile.indexOfFirst {
+                    val type = it.type
+                    type is UnoCardType.NumberCard && type.moves == targetMoves
+                }
+                if (reshuffledIndex != -1) {
+                    return drawPile.removeAt(reshuffledIndex)
+                }
+            }
+            val fallbackIndex = drawPile.indexOfFirst { it.type is UnoCardType.NumberCard }
+            if (fallbackIndex != -1) {
+                return drawPile.removeAt(fallbackIndex)
+            }
+            if (discardPile.any { it.type is UnoCardType.NumberCard }) {
+                drawPile.addAll(discardPile.shuffled(random))
+                discardPile.clear()
+                val reshuffledFallback = drawPile.indexOfFirst { it.type is UnoCardType.NumberCard }
+                if (reshuffledFallback != -1) {
+                    return drawPile.removeAt(reshuffledFallback)
+                }
+            }
+        }
+
+        return drawPile.removeAt(0)
+    }
 }

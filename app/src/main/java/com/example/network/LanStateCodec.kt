@@ -321,6 +321,8 @@ object LanStateCodec {
         )
         obj.put("epTarget", state.enPassantTarget?.let(::encodeSquare) ?: JSONObject.NULL)
         obj.put("epOwner", state.enPassantOwner?.name ?: JSONObject.NULL)
+        obj.put("pityP1", state.movePityCount[PlayerId.PLAYER_1] ?: 0)
+        obj.put("pityP2", state.movePityCount[PlayerId.PLAYER_2] ?: 0)
 
         return "STATE:$obj"
     }
@@ -643,7 +645,11 @@ object LanStateCodec {
                 outcome = outcome,
                 castlingRights = castlingRights,
                 enPassantTarget = epTarget,
-                enPassantOwner = epOwner
+                enPassantOwner = epOwner,
+                movePityCount = mapOf(
+                    PlayerId.PLAYER_1 to obj.optInt("pityP1", 0),
+                    PlayerId.PLAYER_2 to obj.optInt("pityP2", 0)
+                )
             )
         }.getOrNull()
     }

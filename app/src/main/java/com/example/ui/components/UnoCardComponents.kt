@@ -82,6 +82,7 @@ fun UnoDeckAndActiveCardRow(
     drawRevision: Int,
     cardTheme: UnoCardTheme,
     onDrawClick: () -> Unit,
+    pityCount: Int = 0,
     cardWidth: Dp = 64.dp,
     modifier: Modifier = Modifier
 ) {
@@ -95,6 +96,7 @@ fun UnoDeckAndActiveCardRow(
             canDraw = canDraw,
             cardTheme = cardTheme,
             onDrawClick = onDrawClick,
+            pityCount = pityCount,
             cardWidth = cardWidth
         )
         ActiveUnoCardView(
@@ -112,6 +114,7 @@ fun UnoDrawPileCard(
     canDraw: Boolean,
     cardTheme: UnoCardTheme,
     onDrawClick: () -> Unit,
+    pityCount: Int = 0,
     cardWidth: Dp = 64.dp,
     modifier: Modifier = Modifier
 ) {
@@ -151,8 +154,8 @@ fun UnoDrawPileCard(
                 .clip(RoundedCornerShape(8.dp))
                 .background(frameBg)
                 .border(
-                    width = if (canDraw) 1.5.dp else 1.dp,
-                    color = if (canDraw) colors.inkPrimary else colors.hairline,
+                    width = if (canDraw) (if (pityCount > 0) 2.dp else 1.5.dp) else 1.dp,
+                    color = if (canDraw) (if (pityCount > 0) colors.accentShield else colors.inkPrimary) else colors.hairline,
                     shape = RoundedCornerShape(8.dp)
                 )
                 .padding(2.5.dp)
@@ -192,6 +195,32 @@ fun UnoDrawPileCard(
                         fontSize = 8.sp
                     )
                 )
+            }
+
+            if (canDraw && pityCount > 0) {
+                val pityLabel = when {
+                    pityCount == 1 -> "+Move"
+                    pityCount == 2 -> "40%"
+                    else -> "3-4★"
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(colors.accentShield)
+                        .padding(horizontal = 3.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = pityLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = Color.Black,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 7.sp,
+                            lineHeight = 8.sp
+                        )
+                    )
+                }
             }
         }
     }

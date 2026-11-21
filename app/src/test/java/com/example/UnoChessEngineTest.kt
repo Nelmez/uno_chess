@@ -20,6 +20,8 @@ import com.example.model.TurnPhase
 import com.example.model.UnoCard
 import com.example.model.UnoCardType
 import com.example.model.UnoColor
+import com.example.model.grantsMove
+import com.example.network.LanStateCodec
 import com.example.viewmodel.UnoChessViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -829,5 +831,188 @@ class UnoChessEngineTest {
         assertNull(reset.activeCard)
         assertNull(reset.outcome)
         assertEquals(32, reset.board.flatten().count { it != null })
+    }
+
+    @Test
+    fun `card pity chances scale according to non-move draws and match user specification`() {
+        val p0 = UnoDeck.getPityChances(0)
+        assertEquals(0, p0.totalMovePercent)
+        assertEquals(100, p0.naturalDrawPercent)
+
+        val p1 = UnoDeck.getPityChances(1)
+        assertEquals(25, p1.twoMovesPercent)
+        assertEquals(55, p1.totalMovePercent)
+        assertEquals(45, p1.naturalDrawPercent)
+
+        // Exact user requirement: "for example you get merge and revive and your percentage for 2 moves grows to like 40%"
+        val p2 = UnoDeck.getPityChances(2)
+        assertEquals(40, p2.twoMovesPercent)
+        assertEquals(25, p2.threeMovesPercent)
+        assertEquals(15, p2.fourMovesPercent)
+        assertEquals(10, p2.oneMovePercent)
+        assertEquals(90, p2.totalMovePercent)
+        assertEquals(10, p2.naturalDrawPercent)
+
+        // Exact user requirement: "and if you still dont get it your 3 and 4 move chance grows even higher"
+        val p3 = UnoDeck.getPityChances(3)
+        assertEquals(40, p3.threeMovesPercent)
+        assertEquals(35, p3.fourMovesPercent)
+        assertEquals(20, p3.twoMovesPercent)
+        assertEquals(5, p3.oneMovePercent)
+        assertEquals(75, p3.threeMovesPercent + p3.fourMovesPercent)
+        assertEquals(100, p3.totalMovePercent)
+        assertEquals(0, p3.naturalDrawPercent)
+
+        val p4 = UnoDeck.getPityChances(4)
+        assertEquals(50, p4.fourMovesPercent)
+        assertEquals(40, p4.threeMovesPercent)
+        assertEquals(10, p4.twoMovesPercent)
+        assertEquals(0, p4.oneMovePercent)
+        assertEquals(90, p4.threeMovesPercent + p4.fourMovesPercent)
+        assertEquals(100, p4.totalMovePercent)
+        assertEquals(0, p4.naturalDrawPercent)
+    }
+
+    @Test
+    fun `pity target roll favors 2-moves at pity 2 and higher moves at pity 3`() {
+        // At pity 2: roll 0..39 returns 2-moves (40%), 40..64 returns 3-moves (25%), 65..79 returns 4-moves (15%), 80..89 returns 1-move (10%), 90..99 returns natural (null)
+        val mockRandomRoll0 = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 10 // Within 0..39 -> target 2
+        }
+        assertEquals(2, UnoDeck.rollPityTarget(2, mockRandomRoll0))
+
+        val mockRandomRoll45 = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 45 // Within 40..64 -> target 3
+        }
+        assertEquals(3, UnoDeck.rollPityTarget(2, mockRandomRoll45))
+
+        val mockRandomRoll70 = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 70 // Within 65..79 -> target 4
+        }
+        assertEquals(4, UnoDeck.rollPityTarget(2, mockRandomRoll70))
+
+        val mockRandomRoll95 = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 95 // 90..99 -> natural draw
+        }
+        assertNull(UnoDeck.rollPityTarget(2, mockRandomRoll95))
+
+        // At pity 3: 0..39 -> 3-moves (40%), 40..74 -> 4-moves (35%), 75..94 -> 2-moves (20%), 95..99 -> 1-move (5%)
+        val mockP3Roll10 = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 10
+        }
+        assertEquals(3, UnoDeck.rollPityTarget(3, mockP3Roll10))
+
+        val mockP3Roll50 = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 50
+        }
+        assertEquals(4, UnoDeck.rollPityTarget(3, mockP3Roll50))
+    }
+
+    @Test
+    fun `drawCardWithPity extracts target card from deck and maintains deck conservation`() {
+        val drawPile = mutableListOf(
+            UnoCard(1, UnoColor.RED, UnoCardType.Merge),
+            UnoCard(2, UnoColor.BLUE, UnoCardType.RevivePlusTwo),
+            UnoCard(3, UnoColor.YELLOW, UnoCardType.NumberCard(2)),
+            UnoCard(4, UnoColor.GREEN, UnoCardType.NumberCard(3))
+        )
+        val discardPile = mutableListOf<UnoCard>()
+
+        // Mock roll to pick 2-moves
+        val mockRandom = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(until: Int): Int = 5 // within 2-move window at pity 2
+        }
+
+        val drawn = UnoDeck.drawCardWithPity(
+            drawPile = drawPile,
+            discardPile = discardPile,
+            pityCount = 2,
+            enabledSpecials = SpecialCardKey.entries.toSet(),
+            random = mockRandom
+        )
+
+        assertEquals(3, drawn.id)
+        assertEquals(UnoCardType.NumberCard(2), drawn.type)
+        assertEquals(3, drawPile.size)
+        // Original cards remaining: 1, 2, 4
+        assertEquals(listOf(1, 2, 4), drawPile.map { it.id })
+    }
+
+    @Test
+    fun `viewmodel tracks pity count per player and resets on move cards`() {
+        val customDeck = listOf(
+            UnoCard(1, UnoColor.GREEN, UnoCardType.Merge), // P1 draw #1 (non-move)
+            UnoCard(2, UnoColor.YELLOW, UnoCardType.Merge), // P2 draw #1 (non-move)
+            UnoCard(3, UnoColor.GREEN, UnoCardType.Merge) // P1 draw #2 (non-move)
+        )
+        val vm = UnoChessViewModel(Random(42)) { customDeck }
+
+        // Start: both players pity = 0
+        assertEquals(0, vm.uiState.value.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(0, vm.uiState.value.movePityCount[PlayerId.PLAYER_2])
+
+        // Player 1 draws Merge (non-move) -> P1 pity = 1, P2 pity = 0
+        vm.drawCard()
+        val stateAfterMerge1 = vm.uiState.value
+        assertEquals(TurnPhase.MERGING, stateAfterMerge1.phase)
+        assertEquals(1, stateAfterMerge1.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(0, stateAfterMerge1.movePityCount[PlayerId.PLAYER_2])
+
+        // Skip merge to pass turn to Player 2
+        vm.onSkipMerge()
+        val stateP2Turn1 = vm.uiState.value
+        assertEquals(PlayerId.PLAYER_2, stateP2Turn1.activePlayer)
+        assertEquals(1, stateP2Turn1.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(0, stateP2Turn1.movePityCount[PlayerId.PLAYER_2])
+
+        // Player 2 draws Merge (non-move) -> P2 pity = 1, P1 pity = 1
+        vm.drawCard()
+        val stateAfterP2Merge = vm.uiState.value
+        assertEquals(TurnPhase.MERGING, stateAfterP2Merge.phase)
+        assertEquals(1, stateAfterP2Merge.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(1, stateAfterP2Merge.movePityCount[PlayerId.PLAYER_2])
+
+        // Skip merge to pass turn back to Player 1
+        vm.onSkipMerge()
+        val stateP1Turn2 = vm.uiState.value
+        assertEquals(PlayerId.PLAYER_1, stateP1Turn2.activePlayer)
+        assertEquals(1, stateP1Turn2.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(1, stateP1Turn2.movePityCount[PlayerId.PLAYER_2])
+
+        // Player 1 draws 2nd consecutive Merge (non-move) -> P1 pity increments to 2!
+        vm.drawCard()
+        val stateAfterMerge2 = vm.uiState.value
+        assertEquals(TurnPhase.MERGING, stateAfterMerge2.phase)
+        assertEquals(2, stateAfterMerge2.movePityCount[PlayerId.PLAYER_1])
+        assertEquals(1, stateAfterMerge2.movePityCount[PlayerId.PLAYER_2])
+
+        // Skip merge to pass turn to Player 2
+        vm.onSkipMerge()
+        val stateP2Turn2 = vm.uiState.value
+        assertEquals(PlayerId.PLAYER_2, stateP2Turn2.activePlayer)
+
+        // Set state to Player 1 awaiting draw with pity = 2 and a NumberCard in drawPile
+        val p1Draw3State = stateP2Turn2.copy(
+            activePlayer = PlayerId.PLAYER_1,
+            phase = TurnPhase.AWAITING_DRAW,
+            drawPile = listOf(UnoCard(10, UnoColor.RED, UnoCardType.NumberCard(3)))
+        )
+        vm.setStateForTest(p1Draw3State)
+        assertEquals(2, vm.uiState.value.movePityCount[PlayerId.PLAYER_1])
+
+        // Player 1 draws NumberCard(3) -> P1 pity resets to 0!
+        vm.drawCard()
+        val stateAfterNumberDraw = vm.uiState.value
+        assertEquals(TurnPhase.MOVING, stateAfterNumberDraw.phase)
+        assertEquals(0, stateAfterNumberDraw.movePityCount[PlayerId.PLAYER_1])
+        // Opponent's pity is unaffected
+        assertEquals(1, stateAfterNumberDraw.movePityCount[PlayerId.PLAYER_2])
     }
 }

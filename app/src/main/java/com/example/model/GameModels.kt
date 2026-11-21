@@ -176,6 +176,16 @@ data class UnoCard(
     val type: UnoCardType
 )
 
+val UnoCard.grantsMove: Boolean
+    get() = when (type) {
+        is UnoCardType.NumberCard -> true
+        UnoCardType.Freeze, UnoCardType.Shield -> true
+        else -> false
+    }
+
+val UnoCard.isNumberCard: Boolean
+    get() = type is UnoCardType.NumberCard
+
 enum class TurnPhase {
     AWAITING_DRAW,
     MOVING,
@@ -346,7 +356,11 @@ data class GameUiState(
     val outcome: GameOutcome?,
     val castlingRights: CastlingRights,
     val enPassantTarget: Square?,
-    val enPassantOwner: PieceColor?
+    val enPassantOwner: PieceColor?,
+    val movePityCount: Map<PlayerId, Int> = mapOf(
+        PlayerId.PLAYER_1 to 0,
+        PlayerId.PLAYER_2 to 0
+    )
 ) {
     val activeColor: PieceColor
         get() = playerColors.getValue(activePlayer)

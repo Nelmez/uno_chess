@@ -25,6 +25,7 @@ internal object GithubReleaseJson {
         val versionCode = raw.toIntOrNull()
             ?: when (raw) {
                 "1.1.1" -> 3
+                "1.3" -> 4
                 else -> null
             }
             ?: return null
