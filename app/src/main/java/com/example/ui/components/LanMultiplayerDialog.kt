@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -26,7 +27,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,13 +48,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -67,6 +73,7 @@ import com.example.network.LanSessionState
 import com.example.network.NetworkRole
 import com.example.network.OnlineLobbySummary
 import com.example.ui.theme.LocalUnoChessColors
+import kotlinx.coroutines.delay
 
 @Composable
 fun LanMultiplayerDialog(
@@ -81,6 +88,7 @@ fun LanMultiplayerDialog(
     onCreateOnlineLobby: (String) -> Unit,
     onJoinOnlineLobby: (String, String) -> Unit,
     onWatchOnlineLobbies: () -> Unit,
+    onRefreshOnlineLobbies: () -> Unit,
     onStopWatchingOnlineLobbies: () -> Unit,
     onLeaveMatch: () -> Unit,
     onDismiss: () -> Unit
@@ -111,28 +119,47 @@ fun LanMultiplayerDialog(
         }
     }
 
+    val activeErrorMessage = if (linkMode == 1) {
+        lanState.onlineErrorMessage ?: lanState.errorMessage.takeIf { lanState.role.isOnline }
+    } else {
+        lanState.errorMessage.takeIf { !lanState.role.isOnline }
+    }
+
+    val isLanHostWaiting = lanState.role == NetworkRole.LAN_HOST &&
+        lanState.status == LanConnectionStatus.HOSTING_WAITING
+    val isLanConnecting = lanState.role == NetworkRole.LAN_GUEST &&
+        lanState.status == LanConnectionStatus.CONNECTING
+    val isOnlineHostWaiting = lanState.role == NetworkRole.ONLINE_HOST &&
+        lanState.status == LanConnectionStatus.HOSTING_WAITING
+    val isOnlineCreating = lanState.role == NetworkRole.ONLINE_HOST &&
+        lanState.status == LanConnectionStatus.CONNECTING
+    val isOnlineJoining = lanState.role == NetworkRole.ONLINE_GUEST &&
+        lanState.status == LanConnectionStatus.CONNECTING
+
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
+                .safeDrawingPadding()
+                .padding(horizontal = 16.dp, vertical = 20.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
                 .widthIn(max = 440.dp)
                 .testTag("lan_modal")
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Pinned compact header
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -157,7 +184,9 @@ fun LanMultiplayerDialog(
                     }
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.testTag("lan_close_button")
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("lan_close_button")
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
@@ -178,94 +207,323 @@ fun LanMultiplayerDialog(
                         }
                     )
                 } else {
-                    LinkModeSwitch(
-                        selected = linkMode,
-                        onSelect = { linkMode = it }
-                    )
-                    Row(
+                    // Pinned mode + tab selectors
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.surfaceSubtle)
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(
-                            stringResource(R.string.lan_tab_host),
-                            stringResource(R.string.lan_tab_join)
-                        ).forEachIndexed { index, label ->
-                            val selected = selectedTab == index
-                            Box(
+                        LinkModeSwitch(
+                            selected = linkMode,
+                            onSelect = { linkMode = it }
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.surfaceSubtle)
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                stringResource(R.string.lan_tab_host),
+                                stringResource(R.string.lan_tab_join)
+                            ).forEachIndexed { index, label ->
+                                val selected = selectedTab == index
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (selected) colors.surface else colors.surfaceSubtle)
+                                        .then(
+                                            if (selected) {
+                                                Modifier.border(
+                                                    1.dp,
+                                                    colors.hairline,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
+                                        .testTag("lan_tab_$index")
+                                        .clickable { selectedTab = index },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            color = if (selected) colors.inkPrimary else colors.inkSecondary,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        if (activeErrorMessage != null) {
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (selected) colors.surface else colors.surfaceSubtle)
-                                    .testTag("lan_tab_$index")
-                                    .clickable { selectedTab = index },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.accentCheck.copy(alpha = 0.12f))
+                                    .border(1.dp, colors.accentCheck.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        color = if (selected) colors.inkPrimary else colors.inkSecondary
-                                    )
+                                    text = activeErrorMessage,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = colors.accentCheck),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("lan_error_text")
+                                )
+                                if (linkMode == 1 && selectedTab == 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .height(34.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(colors.surface)
+                                            .border(1.dp, colors.accentCheck.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                                            .clickable { onRefreshOnlineLobbies() }
+                                            .padding(horizontal = 10.dp)
+                                            .testTag("online_retry_button"),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.action_retry),
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                color = colors.accentCheck,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Flexible scrollable body so the dialog never clips on any screen height
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                            .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        when {
+                            linkMode == 0 && selectedTab == 0 -> {
+                                HostTabBody(
+                                    lanState = lanState,
+                                    isWaiting = isLanHostWaiting,
+                                    enabledSpecialCards = enabledSpecialCards,
+                                    onToggleSpecialCard = onToggleSpecialCard,
+                                    onSetAllSpecialCards = onSetAllSpecialCards
+                                )
+                            }
+                            linkMode == 0 -> {
+                                JoinTabBody(
+                                    lanState = lanState,
+                                    isConnecting = isLanConnecting,
+                                    manualIp = manualIp,
+                                    manualPort = manualPort,
+                                    onManualIpChange = { manualIp = it },
+                                    onManualPortChange = { manualPort = it.filter { ch -> ch.isDigit() } },
+                                    onSelectHost = { host -> onConnect(host.hostAddress, host.port) }
+                                )
+                            }
+                            selectedTab == 0 -> {
+                                OnlineHostBody(
+                                    lanState = lanState,
+                                    isWaiting = isOnlineHostWaiting,
+                                    isCreating = isOnlineCreating,
+                                    displayName = onlineName,
+                                    onDisplayNameChange = { onlineName = it.take(24) },
+                                    enabledSpecialCards = enabledSpecialCards,
+                                    onToggleSpecialCard = onToggleSpecialCard,
+                                    onSetAllSpecialCards = onSetAllSpecialCards
+                                )
+                            }
+                            else -> {
+                                OnlineJoinBody(
+                                    lanState = lanState,
+                                    isConnecting = isOnlineJoining,
+                                    displayName = onlineName,
+                                    onDisplayNameChange = { onlineName = it.take(24) },
+                                    code = onlineCode,
+                                    onCodeChange = {
+                                        onlineCode = it.uppercase().filter { ch -> ch.isLetterOrDigit() }.take(8)
+                                    },
+                                    onRefreshLobbies = onRefreshOnlineLobbies,
+                                    onJoinLobby = { lobby -> onJoinOnlineLobby(lobby.code, onlineName) }
                                 )
                             }
                         }
                     }
 
-                    if (lanState.errorMessage != null) {
-                        Text(
-                            text = lanState.errorMessage,
-                            style = MaterialTheme.typography.bodySmall.copy(color = colors.accentCheck),
-                            modifier = Modifier.testTag("lan_error_text")
-                        )
-                    }
+                    HorizontalDivider(color = colors.hairline)
 
-                    if (linkMode == 0 && selectedTab == 0) {
-                        HostTabContent(
-                            lanState = lanState,
-                            enabledSpecialCards = enabledSpecialCards,
-                            onToggleSpecialCard = onToggleSpecialCard,
-                            onSetAllSpecialCards = onSetAllSpecialCards,
-                            onStartHosting = onStartHosting,
-                            onStopHosting = onLeaveMatch
-                        )
-                    } else if (linkMode == 0) {
-                        JoinTabContent(
-                            lanState = lanState,
-                            manualIp = manualIp,
-                            manualPort = manualPort,
-                            onManualIpChange = { manualIp = it },
-                            onManualPortChange = { manualPort = it.filter { ch -> ch.isDigit() } },
-                            onSelectHost = { host -> onConnect(host.hostAddress, host.port) },
-                            onManualConnect = {
-                                val parsedPort = manualPort.toIntOrNull() ?: 0
-                                onConnect(manualIp, parsedPort)
+                    // Pinned primary action footer (always 100% visible above system nav bar)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 14.dp)
+                    ) {
+                        when {
+                            linkMode == 0 && selectedTab == 0 -> {
+                                if (isLanHostWaiting) {
+                                    OutlinedButton(
+                                        onClick = onLeaveMatch,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .testTag("lan_stop_hosting_button")
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.lan_stop_hosting),
+                                            color = colors.inkPrimary,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onStartHosting,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = colors.inkPrimary,
+                                            contentColor = colors.surface
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .testTag("lan_start_hosting_button")
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.lan_start_hosting),
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                }
                             }
-                        )
-                    } else if (selectedTab == 0) {
-                        OnlineHostContent(
-                            lanState = lanState,
-                            displayName = onlineName,
-                            onDisplayNameChange = { onlineName = it.take(24) },
-                            enabledSpecialCards = enabledSpecialCards,
-                            onToggleSpecialCard = onToggleSpecialCard,
-                            onSetAllSpecialCards = onSetAllSpecialCards,
-                            onCreateLobby = { onCreateOnlineLobby(onlineName) },
-                            onCancel = onLeaveMatch
-                        )
-                    } else {
-                        OnlineJoinContent(
-                            lanState = lanState,
-                            displayName = onlineName,
-                            onDisplayNameChange = { onlineName = it.take(24) },
-                            code = onlineCode,
-                            onCodeChange = { onlineCode = it.uppercase().filter { ch -> ch.isLetterOrDigit() }.take(8) },
-                            onJoin = { onJoinOnlineLobby(onlineCode, onlineName) },
-                            onJoinLobby = { lobby -> onJoinOnlineLobby(lobby.code, onlineName) }
-                        )
+                            linkMode == 0 -> {
+                                Button(
+                                    onClick = {
+                                        val parsedPort = manualPort.toIntOrNull() ?: 0
+                                        onConnect(manualIp, parsedPort)
+                                    },
+                                    enabled = !isLanConnecting && manualIp.isNotBlank() && manualPort.isNotBlank(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = colors.inkPrimary,
+                                        contentColor = colors.surface
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("lan_connect_button")
+                                ) {
+                                    if (isLanConnecting) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = colors.surface
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Connecting…", style = MaterialTheme.typography.labelLarge)
+                                    } else {
+                                        Text(
+                                            text = stringResource(R.string.lan_connect),
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                }
+                            }
+                            selectedTab == 0 -> {
+                                if (isOnlineHostWaiting) {
+                                    OutlinedButton(
+                                        onClick = onLeaveMatch,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .testTag("online_cancel_lobby")
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.lan_stop_hosting),
+                                            color = colors.inkPrimary,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { onCreateOnlineLobby(onlineName) },
+                                        enabled = !isOnlineCreating && onlineName.isNotBlank(),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = colors.inkPrimary,
+                                            contentColor = colors.surface
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .testTag("online_create_lobby")
+                                    ) {
+                                        if (isOnlineCreating) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = colors.surface
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = stringResource(R.string.online_creating_lobby),
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                        } else {
+                                            Text(
+                                                text = stringResource(R.string.online_create_lobby),
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            else -> {
+                                Button(
+                                    onClick = { onJoinOnlineLobby(onlineCode, onlineName) },
+                                    enabled = !isOnlineJoining && onlineCode.length >= 4 && onlineName.isNotBlank(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = colors.inkPrimary,
+                                        contentColor = colors.surface
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("online_join_button")
+                                ) {
+                                    if (isOnlineJoining) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = colors.surface
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Joining…", style = MaterialTheme.typography.labelLarge)
+                                    } else {
+                                        Text(
+                                            text = stringResource(R.string.online_join_lobby),
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -286,13 +544,18 @@ private fun ConnectedLanView(
     }
     val channelLabel = if (lanState.role.isOnline) "Online" else "Wi-Fi"
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
                 .background(colors.surfaceSubtle)
-                .padding(12.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -302,7 +565,7 @@ private fun ConnectedLanView(
                     .clip(CircleShape)
                     .background(colors.accentRevive)
             )
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = "Connected · $channelLabel ($roleLabel)",
                     style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
@@ -335,276 +598,196 @@ private fun ConnectedLanView(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HostTabContent(
+private fun HostTabBody(
     lanState: LanSessionState,
+    isWaiting: Boolean,
     enabledSpecialCards: Set<SpecialCardKey>,
     onToggleSpecialCard: (SpecialCardKey) -> Unit,
-    onSetAllSpecialCards: (Boolean) -> Unit,
-    onStartHosting: () -> Unit,
-    onStopHosting: () -> Unit
+    onSetAllSpecialCards: (Boolean) -> Unit
 ) {
     val colors = LocalUnoChessColors.current
-    val isWaiting = lanState.role == NetworkRole.LAN_HOST &&
-        lanState.status == LanConnectionStatus.HOSTING_WAITING
     val totalDeckSize = UnoDeck.deckSizeFor(enabledSpecialCards)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 460.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        if (isWaiting) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surfaceSubtle)
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+    if (isWaiting) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surfaceSubtle)
+                .border(1.dp, colors.hairline, RoundedCornerShape(12.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = "Waiting for Player 2…",
-                        style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
-                    )
-                }
-                Text(
-                    text = "${lanState.localIp}:${lanState.hostPort}",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        color = colors.inkPrimary,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    modifier = Modifier.testTag("lan_host_address")
-                )
-                Text(
-                    text = "Custom Deck: $totalDeckSize cards (${enabledSpecialCards.size}/${SpecialCardKey.entries.size} special types)",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        color = colors.inkPrimary,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    modifier = Modifier.testTag("lan_host_deck_summary")
-                )
-                Text(
-                    text = stringResource(R.string.lan_waiting_guest),
-                    style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
-                )
-            }
-
-            OutlinedButton(
-                onClick = onStopHosting,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("lan_stop_hosting_button")
-            ) {
-                Text(
-                    text = stringResource(R.string.lan_stop_hosting),
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
                     color = colors.inkPrimary
                 )
-            }
-        } else {
-            Text(
-                text = "Host a match as Player 1 on your Wi-Fi network. Customize which special cards are shuffled into this match's deck:",
-                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
-            )
-
-            SpecialCardDeckPicker(
-                enabledSpecialCards = enabledSpecialCards,
-                onToggleSpecialCard = onToggleSpecialCard,
-                onSetAllSpecialCards = onSetAllSpecialCards
-            )
-
-            Button(
-                onClick = onStartHosting,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.inkPrimary,
-                    contentColor = colors.surface
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("lan_start_hosting_button")
-            ) {
                 Text(
-                    text = stringResource(R.string.lan_start_hosting),
-                    style = MaterialTheme.typography.labelLarge
+                    text = "Waiting for Player 2…",
+                    style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
                 )
             }
+            Text(
+                text = "${lanState.localIp}:${lanState.hostPort}",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    color = colors.inkPrimary,
+                    fontWeight = FontWeight.Bold
+                ),
+                modifier = Modifier.testTag("lan_host_address")
+            )
+            Text(
+                text = "Custom Deck: $totalDeckSize cards (${enabledSpecialCards.size}/${SpecialCardKey.entries.size} special types)",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = colors.inkPrimary,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                modifier = Modifier.testTag("lan_host_deck_summary")
+            )
+            Text(
+                text = stringResource(R.string.lan_waiting_guest),
+                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
+            )
         }
+    } else {
+        Text(
+            text = "Host a match as Player 1 on your Wi-Fi network. Customize which special cards are shuffled into the deck:",
+            style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
+        )
+
+        SpecialCardDeckPicker(
+            enabledSpecialCards = enabledSpecialCards,
+            onToggleSpecialCard = onToggleSpecialCard,
+            onSetAllSpecialCards = onSetAllSpecialCards
+        )
     }
 }
 
 @Composable
-private fun JoinTabContent(
+private fun JoinTabBody(
     lanState: LanSessionState,
+    isConnecting: Boolean,
     manualIp: String,
     manualPort: String,
     onManualIpChange: (String) -> Unit,
     onManualPortChange: (String) -> Unit,
-    onSelectHost: (DiscoveredHost) -> Unit,
-    onManualConnect: () -> Unit
+    onSelectHost: (DiscoveredHost) -> Unit
 ) {
     val colors = LocalUnoChessColors.current
-    val isConnecting = lanState.status == LanConnectionStatus.CONNECTING
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 460.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = stringResource(R.string.lan_nearby_title),
-            style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
-        )
+    Text(
+        text = stringResource(R.string.lan_nearby_title),
+        style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
+    )
 
-        if (lanState.discoveredHosts.isEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surfaceSubtle)
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (lanState.isDiscovering) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.inkSecondary
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.lan_nearby_empty),
-                    style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted)
+    if (lanState.discoveredHosts.isEmpty()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surfaceSubtle)
+                .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (lanState.isDiscovering) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.inkSecondary
                 )
             }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                lanState.discoveredHosts.forEach { host ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.surfaceSubtle)
-                            .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
-                            .clickable(enabled = !isConnecting) { onSelectHost(host) }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+            Text(
+                text = stringResource(R.string.lan_nearby_empty),
+                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted)
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            lanState.discoveredHosts.forEach { host ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceSubtle)
+                        .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
+                        .clickable(enabled = !isConnecting) { onSelectHost(host) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = host.serviceName,
-                                style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
+                        Text(
+                            text = host.serviceName,
+                            style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
+                        )
+                        Text(
+                            text = "${host.hostAddress}:${host.port}",
+                            style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.surface)
+                            .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Join",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = colors.inkPrimary,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            Text(
-                                text = "${host.hostAddress}:${host.port}",
-                                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.surface)
-                                .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "Join",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    color = colors.inkPrimary,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            )
-                        }
+                        )
                     }
                 }
             }
         }
+    }
 
-        HorizontalDivider(color = colors.hairline)
+    HorizontalDivider(color = colors.hairline)
 
-        Text(
-            text = stringResource(R.string.lan_manual_title),
-            style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
-        )
+    Text(
+        text = stringResource(R.string.lan_manual_title),
+        style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
+    )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedTextField(
-                value = manualIp,
-                onValueChange = onManualIpChange,
-                label = { Text("IP Address") },
-                placeholder = { Text(stringResource(R.string.lan_ip_hint)) },
-                singleLine = true,
-                modifier = Modifier
-                    .weight(1.5f)
-                    .testTag("lan_ip_input")
-            )
-            OutlinedTextField(
-                value = manualPort,
-                onValueChange = onManualPortChange,
-                label = { Text(stringResource(R.string.lan_port_hint)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier
-                    .weight(0.9f)
-                    .testTag("lan_port_input")
-            )
-        }
-
-        Button(
-            onClick = onManualConnect,
-            enabled = !isConnecting && manualIp.isNotBlank() && manualPort.isNotBlank(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.inkPrimary,
-                contentColor = colors.surface
-            ),
-            shape = RoundedCornerShape(10.dp),
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        OutlinedTextField(
+            value = manualIp,
+            onValueChange = onManualIpChange,
+            label = { Text("IP Address") },
+            placeholder = { Text(stringResource(R.string.lan_ip_hint)) },
+            singleLine = true,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("lan_connect_button")
-        ) {
-            if (isConnecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = colors.surface
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Connecting…")
-            } else {
-                Text(
-                    text = stringResource(R.string.lan_connect),
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-        }
+                .weight(1.5f)
+                .testTag("lan_ip_input")
+        )
+        OutlinedTextField(
+            value = manualPort,
+            onValueChange = onManualPortChange,
+            label = { Text(stringResource(R.string.lan_port_hint)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier
+                .weight(0.9f)
+                .testTag("lan_port_input")
+        )
     }
 }
 
@@ -630,9 +813,16 @@ private fun LinkModeSwitch(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp)
+                    .height(42.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (isSelected) colors.surface else colors.surfaceSubtle)
+                    .then(
+                        if (isSelected) {
+                            Modifier.border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier
+                        }
+                    )
                     .testTag(if (index == 0) "link_wifi" else "link_online")
                     .clickable { onSelect(index) },
                 verticalAlignment = Alignment.CenterVertically,
@@ -648,7 +838,8 @@ private fun LinkModeSwitch(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge.copy(
-                        color = if (isSelected) colors.inkPrimary else colors.inkSecondary
+                        color = if (isSelected) colors.inkPrimary else colors.inkSecondary,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
                 )
             }
@@ -698,10 +889,10 @@ private fun SpecialCardDeckPicker(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(colors.surface)
                         .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
@@ -720,7 +911,7 @@ private fun SpecialCardDeckPicker(
                 }
                 Box(
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(colors.surface)
                         .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
@@ -741,33 +932,33 @@ private fun SpecialCardDeckPicker(
         }
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             SpecialCardKey.entries.forEach { key ->
                 val active = key in enabledSpecialCards
                 Row(
                     modifier = Modifier
-                        .heightIn(min = 42.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .heightIn(min = 38.dp)
+                        .clip(RoundedCornerShape(9.dp))
                         .background(if (active) colors.inkPrimary else colors.surface)
                         .border(
                             width = 1.dp,
                             color = if (active) colors.inkPrimary else colors.hairline,
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(9.dp)
                         )
                         .testTag("host_card_toggle_${key.name.lowercase()}")
                         .clickable { onToggleSpecialCard(key) }
-                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (active) {
                         Icon(
                             imageVector = Icons.Rounded.Check,
                             contentDescription = null,
                             tint = colors.surface,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                     Text(
@@ -786,259 +977,265 @@ private fun SpecialCardDeckPicker(
 }
 
 @Composable
-private fun OnlineHostContent(
+private fun OnlineHostBody(
     lanState: LanSessionState,
+    isWaiting: Boolean,
+    isCreating: Boolean,
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
     enabledSpecialCards: Set<SpecialCardKey>,
     onToggleSpecialCard: (SpecialCardKey) -> Unit,
-    onSetAllSpecialCards: (Boolean) -> Unit,
-    onCreateLobby: () -> Unit,
-    onCancel: () -> Unit
+    onSetAllSpecialCards: (Boolean) -> Unit
 ) {
     val colors = LocalUnoChessColors.current
-    val isWaiting = lanState.role == NetworkRole.ONLINE_HOST &&
-        lanState.status == LanConnectionStatus.HOSTING_WAITING
     val totalDeckSize = UnoDeck.deckSizeFor(enabledSpecialCards)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 460.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        if (isWaiting) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surfaceSubtle)
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+    val clipboardManager = LocalClipboardManager.current
+    var copiedCode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(copiedCode) {
+        if (copiedCode) {
+            delay(1800)
+            copiedCode = false
+        }
+    }
+
+    if (isWaiting) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surfaceSubtle)
+                .border(1.dp, colors.hairline, RoundedCornerShape(12.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = "Waiting for Player 2…",
-                        style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
-                    )
-                }
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.inkPrimary
+                )
+                Text(
+                    text = "Waiting for Player 2…",
+                    style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
                     text = lanState.roomCode,
-                    style = MaterialTheme.typography.titleLarge.copy(
+                    style = MaterialTheme.typography.headlineSmall.copy(
                         color = colors.inkPrimary,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
+                        letterSpacing = 3.sp
                     ),
                     modifier = Modifier.testTag("online_room_code")
                 )
-                Text(
-                    text = "Custom Deck: $totalDeckSize cards",
-                    style = MaterialTheme.typography.labelMedium.copy(color = colors.inkPrimary)
-                )
-                Text(
-                    text = stringResource(R.string.online_waiting_guest),
-                    style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
-                )
+                Row(
+                    modifier = Modifier
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.surface)
+                        .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
+                        .clickable {
+                            clipboardManager.setText(AnnotatedString(lanState.roomCode))
+                            copiedCode = true
+                        }
+                        .padding(horizontal = 10.dp)
+                        .testTag("online_copy_code_button"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = if (copiedCode) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                        contentDescription = null,
+                        tint = if (copiedCode) colors.accentRevive else colors.inkPrimary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = stringResource(
+                            if (copiedCode) R.string.online_code_copied else R.string.online_copy_code
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = if (copiedCode) colors.accentRevive else colors.inkPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
+                }
             }
-            OutlinedButton(
-                onClick = onCancel,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("online_cancel_lobby")
-            ) {
-                Text(text = stringResource(R.string.lan_stop_hosting), color = colors.inkPrimary)
-            }
-        } else {
             Text(
-                text = stringResource(R.string.online_host_blurb),
+                text = "Custom Deck: $totalDeckSize cards (${enabledSpecialCards.size}/${SpecialCardKey.entries.size} special types)",
+                style = MaterialTheme.typography.labelMedium.copy(color = colors.inkPrimary)
+            )
+            Text(
+                text = stringResource(R.string.online_waiting_guest),
                 style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
             )
-            OutlinedTextField(
-                value = displayName,
-                onValueChange = onDisplayNameChange,
-                label = { Text(stringResource(R.string.online_name_hint)) },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("online_name_input")
-            )
-            SpecialCardDeckPicker(
-                enabledSpecialCards = enabledSpecialCards,
-                onToggleSpecialCard = onToggleSpecialCard,
-                onSetAllSpecialCards = onSetAllSpecialCards
-            )
-            Button(
-                onClick = onCreateLobby,
-                enabled = displayName.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.inkPrimary,
-                    contentColor = colors.surface
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("online_create_lobby")
-            ) {
-                Text(
-                    text = stringResource(R.string.online_create_lobby),
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
         }
-    }
-}
-
-@Composable
-private fun OnlineJoinContent(
-    lanState: LanSessionState,
-    displayName: String,
-    onDisplayNameChange: (String) -> Unit,
-    code: String,
-    onCodeChange: (String) -> Unit,
-    onJoin: () -> Unit,
-    onJoinLobby: (OnlineLobbySummary) -> Unit
-) {
-    val colors = LocalUnoChessColors.current
-    val isConnecting = lanState.status == LanConnectionStatus.CONNECTING && lanState.role.isOnline
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 460.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
+    } else {
+        Text(
+            text = stringResource(R.string.online_host_blurb),
+            style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
+        )
         OutlinedTextField(
             value = displayName,
             onValueChange = onDisplayNameChange,
+            enabled = !isCreating,
             label = { Text(stringResource(R.string.online_name_hint)) },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("online_join_name_input")
+                .testTag("online_name_input")
         )
+        SpecialCardDeckPicker(
+            enabledSpecialCards = enabledSpecialCards,
+            onToggleSpecialCard = onToggleSpecialCard,
+            onSetAllSpecialCards = onSetAllSpecialCards
+        )
+    }
+}
+
+@Composable
+private fun OnlineJoinBody(
+    lanState: LanSessionState,
+    isConnecting: Boolean,
+    displayName: String,
+    onDisplayNameChange: (String) -> Unit,
+    code: String,
+    onCodeChange: (String) -> Unit,
+    onRefreshLobbies: () -> Unit,
+    onJoinLobby: (OnlineLobbySummary) -> Unit
+) {
+    val colors = LocalUnoChessColors.current
+
+    OutlinedTextField(
+        value = displayName,
+        onValueChange = onDisplayNameChange,
+        enabled = !isConnecting,
+        label = { Text(stringResource(R.string.online_name_hint)) },
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("online_join_name_input")
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
         Text(
             text = stringResource(R.string.online_open_lobbies),
             style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
         )
-        if (lanState.openLobbies.isEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surfaceSubtle)
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (lanState.isListingLobbies) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.inkSecondary
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.online_no_lobbies),
-                    style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted)
+        IconButton(
+            onClick = onRefreshLobbies,
+            enabled = !lanState.isListingLobbies,
+            modifier = Modifier
+                .size(36.dp)
+                .testTag("online_refresh_lobbies_button")
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Refresh,
+                contentDescription = stringResource(R.string.cd_refresh_lobbies),
+                tint = colors.inkSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+
+    if (lanState.openLobbies.isEmpty()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surfaceSubtle)
+                .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (lanState.isListingLobbies) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.inkSecondary
                 )
             }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                lanState.openLobbies.forEach { lobby ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.surfaceSubtle)
-                            .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
-                            .clickable(enabled = !isConnecting) { onJoinLobby(lobby) }
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
-                            .testTag("online_lobby_${lobby.code}"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+            Text(
+                text = stringResource(
+                    if (lanState.isListingLobbies) R.string.online_checking_lobbies
+                    else R.string.online_no_lobbies
+                ),
+                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted)
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            lanState.openLobbies.forEach { lobby ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceSubtle)
+                        .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
+                        .clickable(enabled = !isConnecting) { onJoinLobby(lobby) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .testTag("online_lobby_${lobby.code}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = lobby.hostName,
-                                style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
+                        Text(
+                            text = lobby.hostName,
+                            style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
+                        )
+                        Text(
+                            text = lobby.code,
+                            style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.surface)
+                            .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Join",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = colors.inkPrimary,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            Text(
-                                text = lobby.code,
-                                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.surface)
-                                .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "Join",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    color = colors.inkPrimary,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            )
-                        }
+                        )
                     }
                 }
             }
         }
-        HorizontalDivider(color = colors.hairline)
-        OutlinedTextField(
-            value = code,
-            onValueChange = onCodeChange,
-            label = { Text(stringResource(R.string.online_code_hint)) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("online_code_input")
-        )
-        Button(
-            onClick = onJoin,
-            enabled = !isConnecting && code.length >= 4 && displayName.isNotBlank(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.inkPrimary,
-                contentColor = colors.surface
-            ),
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("online_join_button")
-        ) {
-            if (isConnecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = colors.surface
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Joining…")
-            } else {
-                Text(
-                    text = stringResource(R.string.online_join_lobby),
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-        }
     }
+
+    HorizontalDivider(color = colors.hairline)
+
+    OutlinedTextField(
+        value = code,
+        onValueChange = onCodeChange,
+        enabled = !isConnecting,
+        label = { Text(stringResource(R.string.online_code_hint)) },
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("online_code_input")
+    )
 }

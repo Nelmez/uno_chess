@@ -288,6 +288,10 @@ class UnoChessViewModel(
         onlineSession.startWatchingLobbies()
     }
 
+    fun refreshOnlineLobbies() {
+        onlineSession.refreshLobbies()
+    }
+
     fun stopOnlineLobbyListing() {
         onlineSession.stopWatchingLobbies()
     }
@@ -312,7 +316,9 @@ class UnoChessViewModel(
         val active = if (online.role.isOnline) online else lan
         return active.copy(
             openLobbies = online.openLobbies,
-            isListingLobbies = online.isListingLobbies
+            isListingLobbies = online.isListingLobbies,
+            onlineErrorMessage = online.onlineErrorMessage ?: online.errorMessage.takeIf { online.role.isOnline },
+            isOnlineServerReachable = online.isOnlineServerReachable
         )
     }
 
@@ -4459,7 +4465,9 @@ private class MergedSessionState(
         val active = if (onlineState.role.isOnline) onlineState else lanState
         return active.copy(
             openLobbies = onlineState.openLobbies,
-            isListingLobbies = onlineState.isListingLobbies
+            isListingLobbies = onlineState.isListingLobbies,
+            onlineErrorMessage = onlineState.onlineErrorMessage ?: onlineState.errorMessage.takeIf { onlineState.role.isOnline },
+            isOnlineServerReachable = onlineState.isOnlineServerReachable
         )
     }
 

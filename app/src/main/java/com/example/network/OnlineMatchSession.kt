@@ -16,6 +16,7 @@ interface OnlineMatchSession {
     fun createLobby(displayName: String)
     fun joinLobby(code: String, displayName: String)
     fun startWatchingLobbies()
+    fun refreshLobbies()
     fun stopWatchingLobbies()
     fun sendLine(line: String)
     fun leave()
@@ -195,9 +196,20 @@ class InMemoryOnlineSession(
             val mine = _sessionState.value.roomCode
             _sessionState.value = _sessionState.value.copy(
                 openLobbies = lobbies.filterNot { it.code == mine },
-                isListingLobbies = true
+                isListingLobbies = false,
+                isOnlineServerReachable = true
             )
         }
+    }
+
+    override fun refreshLobbies() {
+        val mine = _sessionState.value.roomCode
+        _sessionState.value = _sessionState.value.copy(
+            openLobbies = registry.openLobbies().filterNot { it.code == mine },
+            isListingLobbies = false,
+            isOnlineServerReachable = true,
+            onlineErrorMessage = null
+        )
     }
 
     override fun stopWatchingLobbies() {

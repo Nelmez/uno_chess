@@ -338,4 +338,39 @@ class LanMultiplayerTest {
         assertEquals(2, decoded!!.movePityCount[PlayerId.PLAYER_1])
         assertEquals(1, decoded.movePityCount[PlayerId.PLAYER_2])
     }
+
+    @Test
+    fun `online lobby listing failure surfaces onlineErrorMessage instead of spinning silently`() {
+        val vm = UnoChessViewModel(Random(5))
+        try {
+            vm.startOnlineLobbyListing()
+            awaitCondition(timeoutMs = 3000) {
+                !vm.lanState.value.isListingLobbies && vm.lanState.value.onlineErrorMessage != null
+            }
+            assertTrue(
+                "Expected clear Firebase configuration error, got: ${vm.lanState.value.onlineErrorMessage}",
+                vm.lanState.value.onlineErrorMessage!!.contains("Firebase", ignoreCase = true) ||
+                    vm.lanState.value.onlineErrorMessage!!.contains("configured", ignoreCase = true)
+            )
+        } finally {
+            vm.stopOnlineLobbyListing()
+            vm.leaveLanMatch()
+        }
+    }
+
+    @Test
+    fun `createOnlineLobby fails fast with actionable error when Firebase is unconfigured`() {
+        val vm = UnoChessViewModel(Random(6))
+        try {
+            vm.createOnlineLobby("Host")
+            awaitCondition(timeoutMs = 3000) {
+                vm.lanState.value.status == LanConnectionStatus.ERROR &&
+                    vm.lanState.value.onlineErrorMessage != null
+            }
+            assertNotNull(vm.lanState.value.errorMessage)
+            assertNotNull(vm.lanState.value.onlineErrorMessage)
+        } finally {
+            vm.leaveLanMatch()
+        }
+    }
 }

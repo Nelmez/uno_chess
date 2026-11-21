@@ -44,6 +44,7 @@
     <string name="link_wifi">Wi-Fi</string>
     <string name="link_online">Online</string>
     <string name="online_create_lobby">Create lobby</string>
+    <string name="online_creating_lobby">Creating lobby…</string>
     <string name="online_join_lobby">Join lobby</string>
     <string name="online_leave_match">Leave online match</string>
     <string name="online_waiting_guest">Share this code with Player 2</string>
@@ -51,7 +52,12 @@
     <string name="online_code_hint">Lobby code</string>
     <string name="online_open_lobbies">Open lobbies</string>
     <string name="online_no_lobbies">No open lobbies right now</string>
+    <string name="online_checking_lobbies">Checking server for lobbies…</string>
     <string name="online_host_blurb">Host a match as Player 1 over the internet. Anyone with the code can join.</string>
+    <string name="online_copy_code">Copy code</string>
+    <string name="online_code_copied">Code copied</string>
+    <string name="action_retry">Retry</string>
+    <string name="cd_refresh_lobbies">Refresh open lobbies</string>
     <string name="lan_tab_host">Host</string>
     <string name="lan_tab_join">Join</string>
     <string name="lan_start_hosting">Start Hosting</string>

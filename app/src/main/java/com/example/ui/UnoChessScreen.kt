@@ -430,6 +430,7 @@ fun UnoChessScreen(
             onCreateOnlineLobby = viewModel::createOnlineLobby,
             onJoinOnlineLobby = viewModel::joinOnlineLobby,
             onWatchOnlineLobbies = viewModel::startOnlineLobbyListing,
+            onRefreshOnlineLobbies = viewModel::refreshOnlineLobbies,
             onStopWatchingOnlineLobbies = viewModel::stopOnlineLobbyListing,
             onLeaveMatch = viewModel::leaveLanMatch,
             onDismiss = { showLanDialog = false }
@@ -517,14 +518,6 @@ private fun CompactPortraitLayout(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
-        val chromeHorizontalPadding = if (maxWidth >= 380.dp) 16.dp else 12.dp
-        val maxBoardWidth = maxWidth.coerceAtMost(560.dp)
-        // Reserve minimum height for 48dp header + 2 player strips + UNO deck card + vertical padding
-        val minChromeHeight = 236.dp
-        val boardSize = minOf(maxBoardWidth, (maxHeight - minChromeHeight).coerceAtLeast(260.dp))
-        val isEdgeToEdgeBoard = boardSize >= maxWidth - 2.dp
-        val deckCardWidth = if (maxWidth >= 380.dp) 68.dp else 60.dp
-
         val showActionCard = isLocalTurn && state.outcome == null && (
             state.phase == TurnPhase.MERGING ||
                 state.phase == TurnPhase.SACRIFICING ||
@@ -533,12 +526,19 @@ private fun CompactPortraitLayout(
                 state.phase == TurnPhase.CLONING ||
                 state.phase == TurnPhase.WILD_CHOOSING
             )
+        val chromeHorizontalPadding = if (maxWidth >= 380.dp) 16.dp else 12.dp
+        val maxBoardWidth = maxWidth.coerceAtMost(560.dp)
+        // Reserve clean vertical space for header + 2 player strips + UNO deck card + active action bar
+        val minChromeHeight = if (showActionCard) 324.dp else 244.dp
+        val boardSize = minOf(maxBoardWidth, (maxHeight - minChromeHeight).coerceAtLeast(248.dp))
+        val isEdgeToEdgeBoard = boardSize >= maxWidth - 2.dp
+        val deckCardWidth = if (maxWidth >= 380.dp) 68.dp else 60.dp
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 560.dp)
-                .padding(top = 4.dp, bottom = 12.dp),
+                .padding(top = 6.dp, bottom = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             MinimalHeaderBar(
@@ -557,7 +557,7 @@ private fun CompactPortraitLayout(
                     .padding(horizontal = chromeHorizontalPadding)
             )
 
-            Spacer(Modifier.weight(0.55f))
+            Spacer(Modifier.weight(0.55f).heightIn(min = 6.dp))
 
             Column(
                 modifier = Modifier.fillMaxWidth(),

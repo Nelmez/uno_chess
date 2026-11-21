@@ -75,7 +75,9 @@ data class LanSessionState(
     val isDiscovering: Boolean = false,
     val roomCode: String = "",
     val openLobbies: List<OnlineLobbySummary> = emptyList(),
-    val isListingLobbies: Boolean = false
+    val isListingLobbies: Boolean = false,
+    val onlineErrorMessage: String? = null,
+    val isOnlineServerReachable: Boolean = false
 ) {
     val isLanConnected: Boolean
         get() = status == LanConnectionStatus.CONNECTED && role.isLan

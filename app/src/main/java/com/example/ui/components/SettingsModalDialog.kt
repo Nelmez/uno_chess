@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -71,25 +72,27 @@ fun SettingsModalDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
+                .safeDrawingPadding()
+                .padding(horizontal = 16.dp, vertical = 20.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
                 .widthIn(max = 440.dp)
                 .testTag("settings_modal")
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -110,7 +113,9 @@ fun SettingsModalDialog(
                     }
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.testTag("settings_close_button")
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("settings_close_button")
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
@@ -120,14 +125,15 @@ fun SettingsModalDialog(
                     }
                 }
 
-                HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = colors.hairline)
 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // 1. Opponent / AI Mode
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -372,24 +378,30 @@ fun SettingsModalDialog(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = colors.hairline)
 
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.inkPrimary,
-                        contentColor = colors.surface
-                    ),
-                    shape = RoundedCornerShape(10.dp),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("settings_done_button")
+                        .padding(horizontal = 20.dp, vertical = 14.dp)
                 ) {
-                    Text(
-                        text = stringResource(R.string.action_done),
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.inkPrimary,
+                            contentColor = colors.surface
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("settings_done_button")
+                    ) {
+                        Text(
+                            text = stringResource(R.string.action_done),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                 }
             }
         }

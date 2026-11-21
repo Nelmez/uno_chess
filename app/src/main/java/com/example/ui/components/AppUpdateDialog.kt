@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,15 +44,19 @@ fun AppUpdateDialog(
     val colors = LocalUnoChessColors.current
     Dialog(
         onDismissRequest = { if (!downloading) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
+                .safeDrawingPadding()
+                .padding(horizontal = 16.dp, vertical = 20.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
                 .widthIn(max = 440.dp)
         ) {
             Column(
