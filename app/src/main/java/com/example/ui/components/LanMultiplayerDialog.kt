@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,7 +39,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +57,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.engine.UnoDeck
 import com.example.model.SpecialCardKey
@@ -111,20 +111,25 @@ fun LanMultiplayerDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .widthIn(max = 440.dp)
                 .testTag("lan_modal")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -182,8 +187,8 @@ fun LanMultiplayerDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(colors.surfaceSubtle)
-                            .padding(3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf(
                             stringResource(R.string.lan_tab_host),
@@ -193,7 +198,7 @@ fun LanMultiplayerDialog(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(40.dp)
+                                    .height(44.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (selected) colors.surface else colors.surfaceSubtle)
                                     .testTag("lan_tab_$index")
@@ -348,8 +353,9 @@ private fun HostTabContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(max = 460.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (isWaiting) {
             Column(
@@ -455,7 +461,13 @@ private fun JoinTabContent(
     val colors = LocalUnoChessColors.current
     val isConnecting = lanState.status == LanConnectionStatus.CONNECTING
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 460.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Text(
             text = stringResource(R.string.lan_nearby_title),
             style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
@@ -467,13 +479,13 @@ private fun JoinTabContent(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(colors.surfaceSubtle)
-                    .padding(12.dp),
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (lanState.isDiscovering) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
                         color = colors.inkSecondary
                     )
@@ -484,20 +496,24 @@ private fun JoinTabContent(
                 )
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 lanState.discoveredHosts.forEach { host ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 56.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(colors.surfaceSubtle)
                             .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
                             .clickable(enabled = !isConnecting) { onSelectHost(host) }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Text(
                                 text = host.serviceName,
                                 style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
@@ -507,10 +523,22 @@ private fun JoinTabContent(
                                 style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
                             )
                         }
-                        Text(
-                            text = "Join",
-                            style = MaterialTheme.typography.labelLarge.copy(color = colors.inkPrimary)
-                        )
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.surface)
+                                .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Join",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    color = colors.inkPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -525,7 +553,7 @@ private fun JoinTabContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedTextField(
                 value = manualIp,
@@ -591,8 +619,8 @@ private fun LinkModeSwitch(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(colors.surfaceSubtle)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         listOf(
             stringResource(R.string.link_wifi) to Icons.Rounded.Wifi,
@@ -602,7 +630,7 @@ private fun LinkModeSwitch(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
+                    .height(44.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (isSelected) colors.surface else colors.surfaceSubtle)
                     .testTag(if (index == 0) "link_wifi" else "link_online")
@@ -640,19 +668,22 @@ private fun SpecialCardDeckPicker(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surfaceSubtle)
-            .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
-            .padding(10.dp)
+            .border(1.dp, colors.hairline, RoundedCornerShape(12.dp))
+            .padding(12.dp)
             .testTag("host_special_cards_panel"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     text = "Special Cards",
                     style = MaterialTheme.typography.labelLarge.copy(
@@ -666,64 +697,84 @@ private fun SpecialCardDeckPicker(
                     modifier = Modifier.testTag("host_deck_size_label")
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                TextButton(
-                    onClick = { onSetAllSpecialCards(true) },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            Spacer(Modifier.width(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
                     modifier = Modifier
-                        .height(32.dp)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.surface)
+                        .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
                         .testTag("host_cards_all_button")
+                        .clickable { onSetAllSpecialCards(true) }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("All", style = MaterialTheme.typography.labelSmall, color = colors.inkPrimary)
+                    Text(
+                        text = "All",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = colors.inkPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
                 }
-                TextButton(
-                    onClick = { onSetAllSpecialCards(false) },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                Box(
                     modifier = Modifier
-                        .height(32.dp)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.surface)
+                        .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
                         .testTag("host_cards_clear_button")
+                        .clickable { onSetAllSpecialCards(false) }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("None", style = MaterialTheme.typography.labelSmall, color = colors.inkSecondary)
+                    Text(
+                        text = "None",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = colors.inkSecondary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
                 }
             }
         }
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SpecialCardKey.entries.forEach { key ->
                 val active = key in enabledSpecialCards
                 Row(
                     modifier = Modifier
-                        .heightIn(min = 34.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .heightIn(min = 42.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(if (active) colors.inkPrimary else colors.surface)
                         .border(
                             width = 1.dp,
                             color = if (active) colors.inkPrimary else colors.hairline,
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(10.dp)
                         )
                         .testTag("host_card_toggle_${key.name.lowercase()}")
                         .clickable { onToggleSpecialCard(key) }
-                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                        .padding(horizontal = 11.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     if (active) {
                         Icon(
                             imageVector = Icons.Rounded.Check,
                             contentDescription = null,
                             tint = colors.surface,
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                     Text(
                         text = "${key.shortSymbol} ${key.displayName}",
-                        style = MaterialTheme.typography.labelSmall.copy(
+                        style = MaterialTheme.typography.labelMedium.copy(
                             color = if (active) colors.surface else colors.inkSecondary,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                            fontSize = 11.sp
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
                         ),
                         maxLines = 1,
                         softWrap = false
@@ -752,9 +803,9 @@ private fun OnlineHostContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 420.dp)
+            .heightIn(max = 460.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (isWaiting) {
             Column(
@@ -863,9 +914,9 @@ private fun OnlineJoinContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 420.dp)
+            .heightIn(max = 460.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         OutlinedTextField(
             value = displayName,
@@ -886,13 +937,13 @@ private fun OnlineJoinContent(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(colors.surfaceSubtle)
-                    .padding(12.dp),
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (lanState.isListingLobbies) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
                         color = colors.inkSecondary
                     )
@@ -903,33 +954,51 @@ private fun OnlineJoinContent(
                 )
             }
         } else {
-            lanState.openLobbies.forEach { lobby ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.surfaceSubtle)
-                        .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
-                        .clickable(enabled = !isConnecting) { onJoinLobby(lobby) }
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                        .testTag("online_lobby_${lobby.code}"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = lobby.hostName,
-                            style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
-                        )
-                        Text(
-                            text = lobby.code,
-                            style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                lanState.openLobbies.forEach { lobby ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.surfaceSubtle)
+                            .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))
+                            .clickable(enabled = !isConnecting) { onJoinLobby(lobby) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .testTag("online_lobby_${lobby.code}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = lobby.hostName,
+                                style = MaterialTheme.typography.titleSmall.copy(color = colors.inkPrimary)
+                            )
+                            Text(
+                                text = lobby.code,
+                                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkSecondary)
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.surface)
+                                .border(1.dp, colors.hairline, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Join",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    color = colors.inkPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                        }
                     }
-                    Text(
-                        text = "Join",
-                        style = MaterialTheme.typography.labelLarge.copy(color = colors.inkPrimary)
-                    )
                 }
             }
         }

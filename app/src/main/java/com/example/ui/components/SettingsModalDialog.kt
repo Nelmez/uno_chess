@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -41,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.model.AiDifficulty
 import com.example.model.OpponentMode
@@ -67,13 +69,18 @@ fun SettingsModalDialog(
 ) {
     val colors = LocalUnoChessColors.current
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .widthIn(max = 440.dp)
                 .testTag("settings_modal")
         ) {
             Column(
@@ -136,11 +143,11 @@ fun SettingsModalDialog(
                             "AI Hard" to OpponentMode.VsAi(AiDifficulty.HARD)
                         )
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             modeOptions.chunked(2).forEach { rowItems ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     rowItems.forEach { (label, mode) ->
                                         val isSelected = opponentMode == mode && !isLanConnected
@@ -205,8 +212,8 @@ fun SettingsModalDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(colors.surfaceSubtle)
-                                .padding(3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             AppearanceToggleOption(
                                 label = stringResource(R.string.theme_light),
@@ -243,8 +250,8 @@ fun SettingsModalDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(colors.surfaceSubtle)
-                                .padding(3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             AppearanceToggleOption(
                                 label = stringResource(R.string.sound_on),
@@ -270,7 +277,7 @@ fun SettingsModalDialog(
                     HorizontalDivider(color = colors.hairline)
 
                     // 4. UNO Card Visual Theme
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             text = stringResource(R.string.settings_card_theme_section),
                             style = MaterialTheme.typography.labelMedium.copy(color = colors.inkSecondary)
@@ -290,7 +297,7 @@ fun SettingsModalDialog(
                                     )
                                     .testTag("card_theme_${theme.name.lowercase()}")
                                     .clickable { onSelectCardTheme(theme) }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -348,7 +355,7 @@ fun SettingsModalDialog(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(44.dp)
+                                    .height(48.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(colors.surfaceSubtle)
                                     .border(1.dp, colors.hairline, RoundedCornerShape(10.dp))

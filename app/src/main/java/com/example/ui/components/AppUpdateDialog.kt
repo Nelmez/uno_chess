@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +25,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.ui.theme.LocalUnoChessColors
 
@@ -39,16 +41,22 @@ fun AppUpdateDialog(
     onDismiss: () -> Unit,
 ) {
     val colors = LocalUnoChessColors.current
-    Dialog(onDismissRequest = { if (!downloading) onDismiss() }) {
+    Dialog(
+        onDismissRequest = { if (!downloading) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .widthIn(max = 440.dp)
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
                     text = stringResource(R.string.update_available_title),
@@ -90,16 +98,19 @@ fun AppUpdateDialog(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     TextButton(
                         onClick = onDismiss,
                         enabled = !downloading,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.action_later),
-                            color = colors.inkSecondary
+                            color = colors.inkSecondary,
+                            style = MaterialTheme.typography.labelLarge
                         )
                     }
                     Button(
@@ -112,7 +123,7 @@ fun AppUpdateDialog(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1.4f)
-                            .height(44.dp)
+                            .height(48.dp)
                     ) {
                         Text(
                             text = stringResource(

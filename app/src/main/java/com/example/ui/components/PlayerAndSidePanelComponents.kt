@@ -90,14 +90,15 @@ fun PlayerStripCard(
         modifier = modifier
             .fillMaxWidth()
             .testTag("player_strip_${player.name.lowercase()}"),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 1.dp),
+                .heightIn(min = 34.dp)
+                .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             ColorControlBadge(color = color)
 
@@ -133,19 +134,19 @@ fun PlayerStripCard(
                 )
             }
 
-            // Inline compact captured tray on the same row so portrait fits on 1 screen
+            // Inline compact captured tray on the same row
             if (showInlineCapturedTray && !expandReviveBar && capturedOwnPieces.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(1.dp, Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     capturedOwnPieces.forEach { piece ->
                         Box(
                             modifier = Modifier
-                                .size(18.dp)
+                                .size(20.dp)
                                 .testTag("captured_piece_${piece.id}"),
                             contentAlignment = Alignment.Center
                         ) {
@@ -160,7 +161,7 @@ fun PlayerStripCard(
             if (isActiveTurn) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(9.dp)
                         .clip(CircleShape)
                         .background(if (isInCheck) colors.accentCheck else colors.inkPrimary)
                 )
@@ -217,28 +218,27 @@ fun CapturedPiecesStrip(
             .then(
                 if (isReviveSelectable) {
                     Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(colors.accentRevive.copy(alpha = 0.10f))
-                        .border(1.dp, colors.accentRevive.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                        .border(1.dp, colors.accentRevive.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 } else {
-                    Modifier.padding(vertical = 1.dp)
+                    Modifier.padding(vertical = 2.dp)
                 }
             ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (isReviveSelectable) {
             Text(
                 text = "Revive",
-                style = MaterialTheme.typography.labelSmall.copy(
+                style = MaterialTheme.typography.labelMedium.copy(
                     color = colors.accentRevive,
                     fontWeight = FontWeight.Bold
                 ),
                 maxLines = 1,
                 softWrap = false
             )
-            Spacer(Modifier.width(2.dp))
         }
 
         if (pieces.isEmpty()) {
@@ -251,7 +251,7 @@ fun CapturedPiecesStrip(
                 modifier = Modifier
                     .weight(1f)
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isReviveSelectable) 8.dp else 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 pieces.forEach { piece ->
@@ -259,8 +259,8 @@ fun CapturedPiecesStrip(
                     val chipDesc = "${ownerColor.displayName} ${piece.type.displayName}"
                     Box(
                         modifier = Modifier
-                            .size(if (isReviveSelectable) 32.dp else 22.dp)
-                            .clip(RoundedCornerShape(6.dp))
+                            .size(if (isReviveSelectable) 44.dp else 24.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(
                                 when {
                                     isSelected -> colors.accentRevive.copy(alpha = 0.24f)
@@ -269,20 +269,20 @@ fun CapturedPiecesStrip(
                                 }
                             )
                             .border(
-                                width = if (isSelected) 1.5.dp else if (isReviveSelectable) 1.dp else 0.dp,
+                                width = if (isSelected) 2.dp else if (isReviveSelectable) 1.dp else 0.dp,
                                 color = when {
                                     isSelected -> colors.accentRevive
                                     isReviveSelectable -> colors.hairline
                                     else -> Color.Transparent
                                 },
-                                shape = RoundedCornerShape(6.dp)
+                                shape = RoundedCornerShape(8.dp)
                             )
                             .testTag("captured_piece_${piece.id}")
                             .semantics { contentDescription = chipDesc }
                             .clickable(enabled = isReviveSelectable) {
                                 onSelectPiece(piece.id)
                             }
-                            .padding(2.dp),
+                            .padding(if (isReviveSelectable) 5.dp else 2.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         ChessPieceGraphic(type = piece.type, color = piece.color)
@@ -363,7 +363,7 @@ fun TurnStatusSummary(
 
     Column(
         modifier = modifier.testTag("turn_status_card"),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         when {
             state.outcome != null -> {
@@ -676,6 +676,42 @@ fun TurnStatusSummary(
 }
 
 @Composable
+private fun ActionCardPillButton(
+    label: String,
+    emphasized: Boolean,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalUnoChessColors.current
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (emphasized) colors.surfaceSubtle else Color.Transparent)
+            .border(
+                width = 1.dp,
+                color = if (emphasized) colors.inkPrimary.copy(alpha = 0.35f) else colors.hairline,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .testTag(testTag)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                color = if (emphasized) colors.inkPrimary else colors.inkSecondary,
+                fontWeight = if (emphasized) FontWeight.Bold else FontWeight.SemiBold
+            ),
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+@Composable
 fun MergeActionCard(
     state: GameUiState,
     onConfirmMerge: (PieceType) -> Unit,
@@ -698,17 +734,17 @@ fun MergeActionCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
-            .border(1.dp, colors.accentTrade.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(1.dp, colors.accentTrade.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("merge_action_card"),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = if (selected.isEmpty()) {
@@ -716,7 +752,7 @@ fun MergeActionCard(
                 } else {
                     "${selected.size} sel · ${totalPoints}pt → ★${anchor?.toAlgebraic()?.uppercase() ?: ""}"
                 },
-                style = MaterialTheme.typography.labelMedium.copy(
+                style = MaterialTheme.typography.labelLarge.copy(
                     color = colors.inkPrimary,
                     fontWeight = FontWeight.Bold
                 ),
@@ -726,29 +762,23 @@ fun MergeActionCard(
             )
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (selected.isNotEmpty()) {
-                    TextButton(
+                    ActionCardPillButton(
+                        label = "Clear",
+                        emphasized = false,
                         onClick = onClearSelection,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .height(32.dp)
-                            .testTag("merge_clear_button")
-                    ) {
-                        Text("Clear", color = colors.inkSecondary, style = MaterialTheme.typography.labelSmall)
-                    }
+                        testTag = "merge_clear_button"
+                    )
                 }
-                TextButton(
+                ActionCardPillButton(
+                    label = "Skip",
+                    emphasized = true,
                     onClick = onSkipMerge,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .height(32.dp)
-                        .testTag("merge_skip_button")
-                ) {
-                    Text("Skip", color = colors.inkPrimary, style = MaterialTheme.typography.labelSmall)
-                }
+                    testTag = "merge_skip_button"
+                )
             }
         }
 
@@ -761,40 +791,39 @@ fun MergeActionCard(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             allTargets.forEach { targetType ->
                 val enabled = targetType in validTargets
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .height(34.dp)
+                        .height(44.dp)
                         .alpha(if (enabled) 1f else 0.34f)
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             if (enabled) colors.accentTrade.copy(alpha = 0.14f) else colors.surfaceSubtle
                         )
                         .border(
                             width = 1.dp,
                             color = if (enabled) colors.accentTrade else colors.hairline,
-                            shape = RoundedCornerShape(7.dp)
+                            shape = RoundedCornerShape(10.dp)
                         )
                         .testTag("merge_target_${targetType.name.lowercase()}")
                         .clickable(enabled = enabled) { onConfirmMerge(targetType) }
-                        .padding(horizontal = 2.dp),
+                        .padding(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(modifier = Modifier.size(22.dp)) {
+                    Box(modifier = Modifier.size(24.dp)) {
                         ChessPieceGraphic(type = targetType, color = state.activeColor)
                     }
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(3.dp))
                     Text(
                         text = "${targetType.materialValue}",
-                        style = MaterialTheme.typography.labelSmall.copy(
+                        style = MaterialTheme.typography.labelMedium.copy(
                             color = if (enabled) colors.inkPrimary else colors.inkMuted,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp
+                            fontWeight = FontWeight.Bold
                         )
                     )
                 }
@@ -826,17 +855,17 @@ fun SacrificeActionCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
-            .border(1.dp, colors.accentTrade.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(1.dp, colors.accentTrade.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("sacrifice_action_card"),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = if (selectedPiece != null && selectedSquare != null) {
@@ -844,7 +873,7 @@ fun SacrificeActionCard(
                 } else {
                     "Tap a highlighted piece (N/B/R/Q) to split"
                 },
-                style = MaterialTheme.typography.labelMedium.copy(
+                style = MaterialTheme.typography.labelLarge.copy(
                     color = colors.inkPrimary,
                     fontWeight = FontWeight.Bold
                 ),
@@ -852,15 +881,12 @@ fun SacrificeActionCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            TextButton(
+            ActionCardPillButton(
+                label = "Skip",
+                emphasized = true,
                 onClick = onSkipSacrifice,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier
-                    .height(32.dp)
-                    .testTag("sacrifice_skip_button")
-            ) {
-                Text("Skip", color = colors.inkPrimary, style = MaterialTheme.typography.labelSmall)
-            }
+                testTag = "sacrifice_skip_button"
+            )
         }
 
         if (recipes.isEmpty()) {
@@ -879,23 +905,23 @@ fun SacrificeActionCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 recipes.forEach { recipe ->
                     Box(
                         modifier = Modifier
-                            .height(34.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(colors.accentTrade.copy(alpha = 0.14f))
-                            .border(1.dp, colors.accentTrade, RoundedCornerShape(8.dp))
+                            .border(1.dp, colors.accentTrade, RoundedCornerShape(10.dp))
                             .testTag("sacrifice_recipe_${recipe.id}")
                             .clickable { onConfirmSacrifice(recipe.id) }
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = recipe.label,
-                            style = MaterialTheme.typography.labelSmall.copy(
+                            style = MaterialTheme.typography.labelMedium.copy(
                                 color = colors.inkPrimary,
                                 fontWeight = FontWeight.Bold
                             ),
@@ -930,22 +956,25 @@ fun PawnPromoteActionCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
-            .border(1.dp, colors.accentPromote.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(1.dp, colors.accentPromote.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("pawn_promote_action_card"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
             Text(
                 text = if (selectedSquare != null) {
                     "Pawn on ${selectedSquare.toAlgebraic().uppercase()}"
                 } else {
                     "Tap a teal pawn"
                 },
-                style = MaterialTheme.typography.labelMedium.copy(
+                style = MaterialTheme.typography.labelLarge.copy(
                     color = colors.inkPrimary,
                     fontWeight = FontWeight.Bold
                 ),
@@ -964,29 +993,29 @@ fun PawnPromoteActionCard(
             val enabled = target in validTargets
             Row(
                 modifier = Modifier
-                    .height(40.dp)
+                    .height(44.dp)
                     .alpha(if (enabled) 1f else 0.36f)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(
                         if (enabled) colors.accentPromote.copy(alpha = 0.16f) else colors.surfaceSubtle
                     )
                     .border(
                         width = 1.dp,
                         color = if (enabled) colors.accentPromote else colors.hairline,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp)
                     )
                     .testTag("pawn_promote_${target.name.lowercase()}")
                     .clickable(enabled = enabled) { onConfirmPawnPromote(target) }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(modifier = Modifier.size(22.dp)) {
                     ChessPieceGraphic(type = target, color = state.activeColor)
                 }
                 Text(
                     text = target.displayName,
-                    style = MaterialTheme.typography.labelSmall.copy(
+                    style = MaterialTheme.typography.labelMedium.copy(
                         color = colors.inkPrimary,
                         fontWeight = FontWeight.Bold
                     ),
@@ -1012,22 +1041,25 @@ fun SwapActionCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
-            .border(1.dp, colors.accentSwap.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(1.dp, colors.accentSwap.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("swap_action_card"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
             Text(
                 text = if (firstPiece != null && firstSquare != null) {
                     "Selected ${firstPiece.type.displayName} (${firstSquare.toAlgebraic().uppercase()})"
                 } else {
                     "Swap Positions"
                 },
-                style = MaterialTheme.typography.labelMedium.copy(
+                style = MaterialTheme.typography.labelLarge.copy(
                     color = colors.inkPrimary,
                     fontWeight = FontWeight.Bold
                 ),
@@ -1036,9 +1068,9 @@ fun SwapActionCard(
             )
             Text(
                 text = if (firstSquare != null) {
-                    "Tap a highlighted partner square to swap"
+                    "Tap a highlighted partner square"
                 } else {
-                    "Tap 2 of your highlighted pieces to swap"
+                    "Tap 2 of your highlighted pieces"
                 },
                 style = MaterialTheme.typography.labelSmall.copy(color = colors.inkMuted),
                 maxLines = 1,
@@ -1047,29 +1079,23 @@ fun SwapActionCard(
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (firstSquare != null) {
-                TextButton(
+                ActionCardPillButton(
+                    label = "Clear",
+                    emphasized = false,
                     onClick = onClearSelection,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .height(36.dp)
-                        .testTag("swap_clear_button")
-                ) {
-                    Text("Clear", color = colors.inkSecondary, style = MaterialTheme.typography.labelSmall)
-                }
+                    testTag = "swap_clear_button"
+                )
             }
-            TextButton(
+            ActionCardPillButton(
+                label = "Skip",
+                emphasized = true,
                 onClick = onSkipSwap,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier
-                    .height(36.dp)
-                    .testTag("swap_skip_button")
-            ) {
-                Text("Skip", color = colors.inkPrimary, style = MaterialTheme.typography.labelSmall)
-            }
+                testTag = "swap_skip_button"
+            )
         }
     }
 }
@@ -1088,22 +1114,25 @@ fun CloneActionCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
-            .border(1.dp, colors.accentClone.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(1.dp, colors.accentClone.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("clone_action_card"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
             Text(
                 text = if (sourcePiece != null && sourceSquare != null) {
                     "Cloning ${sourcePiece.type.displayName} (${sourceSquare.toAlgebraic().uppercase()})"
                 } else {
                     "Clone (Pawn / Knight / Bishop)"
                 },
-                style = MaterialTheme.typography.labelMedium.copy(
+                style = MaterialTheme.typography.labelLarge.copy(
                     color = colors.inkPrimary,
                     fontWeight = FontWeight.Bold
                 ),
@@ -1112,9 +1141,9 @@ fun CloneActionCard(
             )
             Text(
                 text = if (sourceSquare != null) {
-                    "Tap a highlighted empty square to spawn the copy"
+                    "Tap a highlighted empty square"
                 } else {
-                    "Tap an eligible piece to duplicate it"
+                    "Tap an eligible piece to duplicate"
                 },
                 style = MaterialTheme.typography.labelSmall.copy(color = colors.inkMuted),
                 maxLines = 1,
@@ -1123,29 +1152,23 @@ fun CloneActionCard(
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (sourceSquare != null) {
-                TextButton(
+                ActionCardPillButton(
+                    label = "Clear",
+                    emphasized = false,
                     onClick = onClearSelection,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .height(36.dp)
-                        .testTag("clone_clear_button")
-                ) {
-                    Text("Clear", color = colors.inkSecondary, style = MaterialTheme.typography.labelSmall)
-                }
+                    testTag = "clone_clear_button"
+                )
             }
-            TextButton(
+            ActionCardPillButton(
+                label = "Skip",
+                emphasized = true,
                 onClick = onSkipClone,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier
-                    .height(36.dp)
-                    .testTag("clone_skip_button")
-            ) {
-                Text("Skip", color = colors.inkPrimary, style = MaterialTheme.typography.labelSmall)
-            }
+                testTag = "clone_skip_button"
+            )
         }
     }
 }
@@ -1161,16 +1184,16 @@ fun WildCardActionCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
-            .border(1.dp, colors.accentWild.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(1.dp, colors.accentWild.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("wild_action_card"),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
             text = "✦ Wild Card — Pick a Special Effect",
-            style = MaterialTheme.typography.labelMedium.copy(
+            style = MaterialTheme.typography.labelLarge.copy(
                 color = colors.accentWild,
                 fontWeight = FontWeight.Bold
             ),
@@ -1182,23 +1205,23 @@ fun WildCardActionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             state.availableWildEffects.forEach { effect ->
                 Box(
                     modifier = Modifier
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(colors.accentWild.copy(alpha = 0.14f))
-                        .border(1.dp, colors.accentWild, RoundedCornerShape(8.dp))
+                        .border(1.dp, colors.accentWild, RoundedCornerShape(10.dp))
                         .testTag("wild_effect_${effect.name.lowercase()}")
                         .clickable { onSelectWildEffect(effect) }
-                        .padding(horizontal = 10.dp),
+                        .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "${effect.shortSymbol} ${effect.displayName}",
-                        style = MaterialTheme.typography.labelSmall.copy(
+                        style = MaterialTheme.typography.labelMedium.copy(
                             color = colors.inkPrimary,
                             fontWeight = FontWeight.Bold
                         ),

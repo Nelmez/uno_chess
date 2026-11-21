@@ -64,6 +64,7 @@ import kotlin.math.roundToInt
 fun ChessBoardView(
     state: GameUiState,
     onSquareTapped: (Square) -> Unit,
+    edgeToEdge: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val colors = LocalUnoChessColors.current
@@ -124,11 +125,18 @@ fun ChessBoardView(
     fun visualRow(boardRow: Int): Int = if (state.boardFlipped) 7 - boardRow else boardRow
     fun visualCol(boardCol: Int): Int = if (state.boardFlipped) 7 - boardCol else boardCol
 
+    val boardShape = if (edgeToEdge) RoundedCornerShape(0.dp) else RoundedCornerShape(8.dp)
     BoxWithConstraints(
         modifier = modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, colors.boardBorder, RoundedCornerShape(6.dp))
+            .clip(boardShape)
+            .then(
+                if (edgeToEdge) {
+                    Modifier.border(0.5.dp, colors.boardBorder.copy(alpha = 0.65f), boardShape)
+                } else {
+                    Modifier.border(1.dp, colors.boardBorder, boardShape)
+                }
+            )
     ) {
         val boardWidthPx = constraints.maxWidth.toFloat()
         val boardHeightPx = constraints.maxHeight.toFloat()

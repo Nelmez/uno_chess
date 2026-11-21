@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.model.GameOutcome
 import com.example.model.LogCategory
@@ -94,12 +96,19 @@ fun PromotionPickerDialog(
         PieceType.KNIGHT
     )
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
-            modifier = Modifier.testTag("promotion_modal")
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .widthIn(max = 420.dp)
+                .testTag("promotion_modal")
         ) {
             Column(
                 modifier = Modifier
@@ -150,10 +159,12 @@ fun PromotionPickerDialog(
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 TextButton(
                     onClick = onDismiss,
-                    modifier = Modifier.testTag("promote_cancel_button")
+                    modifier = Modifier
+                        .height(48.dp)
+                        .testTag("promote_cancel_button")
                 ) {
                     Text(
                         text = stringResource(R.string.action_cancel),
@@ -171,13 +182,18 @@ fun RulesModalDialog(
 ) {
     val colors = LocalUnoChessColors.current
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .widthIn(max = 440.dp)
                 .testTag("rules_modal")
         ) {
             Column(
@@ -265,7 +281,7 @@ fun RulesModalDialog(
                     )
                     RuleItem(
                         title = "Check, Custom Decks & Modes",
-                        body = "Giving check ends your turn immediately. Starting a turn in check auto-discards special cards until you draw a Number card. When hosting a Wi-Fi LAN match or an online lobby, customize which special cards are in the deck! Tap the Flag button to Forfeit, and tap the Win Streak badge to view match history."
+                        body = "Giving check ends your turn immediately. Starting a turn in check auto-discards special cards until you draw a Number card. When hosting a Wi-Fi LAN match or an online lobby, customize which special cards are in the deck! Open the top-right menu (⋮) to Forfeit or start a New Game, and tap the Win Streak badge to view match history."
                     )
                 }
 
@@ -338,7 +354,10 @@ fun ResetConfirmDialog(
                     contentColor = colors.surface
                 ),
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("confirm_reset_button")
+                modifier = Modifier
+                    .height(48.dp)
+                    .padding(horizontal = 4.dp)
+                    .testTag("confirm_reset_button")
             ) {
                 Text(stringResource(R.string.action_confirm_reset))
             }
@@ -346,7 +365,10 @@ fun ResetConfirmDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.testTag("cancel_reset_button")
+                modifier = Modifier
+                    .height(48.dp)
+                    .padding(horizontal = 4.dp)
+                    .testTag("cancel_reset_button")
             ) {
                 Text(stringResource(R.string.action_cancel), color = colors.inkSecondary)
             }
@@ -386,7 +408,10 @@ fun ForfeitConfirmDialog(
                     contentColor = Color.White
                 ),
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("confirm_forfeit_button")
+                modifier = Modifier
+                    .height(48.dp)
+                    .padding(horizontal = 4.dp)
+                    .testTag("confirm_forfeit_button")
             ) {
                 Text(stringResource(R.string.action_confirm_forfeit))
             }
@@ -394,7 +419,10 @@ fun ForfeitConfirmDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.testTag("cancel_forfeit_button")
+                modifier = Modifier
+                    .height(48.dp)
+                    .padding(horizontal = 4.dp)
+                    .testTag("cancel_forfeit_button")
             ) {
                 Text(stringResource(R.string.action_cancel), color = colors.inkSecondary)
             }
@@ -412,20 +440,25 @@ fun MatchLogModalDialog(
     val colors = LocalUnoChessColors.current
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = colors.surface,
             border = BorderStroke(1.dp, colors.hairline),
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .widthIn(max = 440.dp)
                 .testTag("match_log_modal")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -468,8 +501,8 @@ fun MatchLogModalDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(colors.surfaceSubtle)
-                        .padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
                         stringResource(R.string.match_log_tab_matches) to "match_log_tab_matches",
@@ -479,7 +512,7 @@ fun MatchLogModalDialog(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(38.dp)
+                                .height(44.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (active) colors.surface else Color.Transparent)
                                 .then(
@@ -572,7 +605,9 @@ fun MatchLogModalDialog(
                         ) {
                             TextButton(
                                 onClick = onClearHistory,
-                                modifier = Modifier.testTag("clear_match_history_button")
+                                modifier = Modifier
+                                    .height(44.dp)
+                                    .testTag("clear_match_history_button")
                             ) {
                                 Text(
                                     text = stringResource(R.string.action_clear_history),
@@ -840,14 +875,14 @@ fun GameOverBannerCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (isVictory) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(36.dp)
                         .graphicsLayer {
                             scaleX = trophyPulse
                             scaleY = trophyPulse
@@ -863,9 +898,9 @@ fun GameOverBannerCard(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(12.dp))
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = headline,
                     style = MaterialTheme.typography.titleMedium.copy(
@@ -882,7 +917,7 @@ fun GameOverBannerCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(12.dp))
             Button(
                 onClick = onNewGame,
                 colors = ButtonDefaults.buttonColors(

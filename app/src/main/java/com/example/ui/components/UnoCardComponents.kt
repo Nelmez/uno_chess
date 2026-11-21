@@ -88,7 +88,7 @@ fun UnoDeckAndActiveCardRow(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         UnoDrawPileCard(
@@ -206,18 +206,18 @@ fun UnoDrawPileCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(2.dp)
-                        .clip(RoundedCornerShape(3.dp))
+                        .padding(3.dp)
+                        .clip(RoundedCornerShape(4.dp))
                         .background(colors.accentShield)
-                        .padding(horizontal = 3.dp, vertical = 1.dp)
+                        .padding(horizontal = 4.dp, vertical = 1.5.dp)
                 ) {
                     Text(
                         text = pityLabel,
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = Color.Black,
                             fontWeight = FontWeight.Black,
-                            fontSize = 7.sp,
-                            lineHeight = 8.sp
+                            fontSize = 8.sp,
+                            lineHeight = 9.sp
                         )
                     )
                 }

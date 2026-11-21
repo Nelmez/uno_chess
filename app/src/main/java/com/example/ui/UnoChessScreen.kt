@@ -34,10 +34,14 @@ import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -269,9 +273,7 @@ fun UnoChessScreen(
                 .navigationBarsPadding()
         ) {
             BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                modifier = Modifier.fillMaxSize()
             ) {
                 if (maxWidth >= 680.dp) {
                     ExpandedTabletopLayout(
@@ -509,207 +511,212 @@ private fun CompactPortraitLayout(
     val bottomPlayer = state.playerControlling(bottomColor)
     val checkedColor = state.checkedKingSquare?.let { sq -> state.board[sq.row][sq.col]?.color }
 
-    // Single-screen non-scrolling layout: size the board snugly between player strips
-    // and let the UNO card panel + Move Log fill all remaining bottom space with zero dead gaps.
+    // Maximized edge-to-edge chessboard with balanced vertical spacers and no inline Move Log.
+    // Full Move Log & Match History remain 1 tap away via the top-bar Streak pill.
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
-        val availableWidth = maxWidth.coerceAtMost(560.dp)
-        // Guarantee room for header + 2 player strips + card UI + move log even on compact screens
-        val minChromeHeight = 272.dp
-        val boardSize = minOf(availableWidth, (maxHeight - minChromeHeight).coerceAtLeast(220.dp))
-        val bottomSpace = (maxHeight - boardSize - 110.dp).coerceAtLeast(150.dp)
-        val isSpaciousBottom = bottomSpace >= 220.dp
-        val deckCardWidth = if (isSpaciousBottom) 66.dp else 54.dp
+        val chromeHorizontalPadding = if (maxWidth >= 380.dp) 16.dp else 12.dp
+        val maxBoardWidth = maxWidth.coerceAtMost(560.dp)
+        // Reserve minimum height for 48dp header + 2 player strips + UNO deck card + vertical padding
+        val minChromeHeight = 236.dp
+        val boardSize = minOf(maxBoardWidth, (maxHeight - minChromeHeight).coerceAtLeast(260.dp))
+        val isEdgeToEdgeBoard = boardSize >= maxWidth - 2.dp
+        val deckCardWidth = if (maxWidth >= 380.dp) 68.dp else 60.dp
+
+        val showActionCard = isLocalTurn && state.outcome == null && (
+            state.phase == TurnPhase.MERGING ||
+                state.phase == TurnPhase.SACRIFICING ||
+                state.phase == TurnPhase.PROMOTING_PAWN ||
+                state.phase == TurnPhase.SWAPPING ||
+                state.phase == TurnPhase.CLONING ||
+                state.phase == TurnPhase.WILD_CHOOSING
+            )
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 560.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isSpaciousBottom) 8.dp else 5.dp),
+                .widthIn(max = 560.dp)
+                .padding(top = 4.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             MinimalHeaderBar(
                 isLanConnected = lanState.isRemoteConnected,
                 isOnline = lanState.role.isOnline,
+                canForfeit = state.outcome == null,
                 currentStreak = matchStats.currentStreak,
                 onOpenMatchLog = onOpenMatchLog,
                 onOpenSettings = onOpenSettings,
                 onOpenLan = onOpenLan,
                 onOpenRules = onOpenRules,
+                onRequestForfeit = onRequestForfeit,
                 onRequestReset = onRequestReset,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = chromeHorizontalPadding)
             )
 
-            PlayerStripCard(
-                player = topPlayer,
-                displayName = resolvePlayerLabel(topPlayer, opponentMode, lanState.isRemoteConnected),
-                color = topColor,
-                isActiveTurn = state.activePlayer == topPlayer && state.outcome == null,
-                isInCheck = checkedColor == topColor,
-                capturedOwnPieces = state.capturedPieces[topColor].orEmpty(),
-                isReviveSelectable = isLocalTurn && state.phase == TurnPhase.REVIVING && state.activeColor == topColor,
-                selectedRevivePieceId = state.selectedRevivePieceId,
-                onSelectRevivePiece = onSelectRevivePiece,
-                showInlineCapturedTray = true,
-                isLocalUser = lanState.isRemoteConnected && localPlayer == topPlayer,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Spacer(Modifier.weight(0.55f))
 
-            // Snug square chessboard + floating notice / game-over overlays (no vertical dead voids)
-            Box(
-                modifier = Modifier.size(boardSize),
-                contentAlignment = Alignment.Center
-            ) {
-                ChessBoardView(
-                    state = state,
-                    onSquareTapped = onSquareTapped,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                NoticeBannerHost(
-                    notice = state.noticeBanner,
-                    onDismiss = onDismissNotice,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(6.dp)
-                )
-
-                state.outcome?.let { outcome ->
-                    GameOverBannerCard(
-                        outcome = outcome,
-                        opponentMode = opponentMode,
-                        isLanConnected = lanState.isRemoteConnected,
-                        onNewGame = onInstantNewGame,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(6.dp)
-                    )
-                }
-            }
-
-            PlayerStripCard(
-                player = bottomPlayer,
-                displayName = resolvePlayerLabel(bottomPlayer, opponentMode, lanState.isRemoteConnected),
-                color = bottomColor,
-                isActiveTurn = state.activePlayer == bottomPlayer && state.outcome == null,
-                isInCheck = checkedColor == bottomColor,
-                capturedOwnPieces = state.capturedPieces[bottomColor].orEmpty(),
-                isReviveSelectable = isLocalTurn && state.phase == TurnPhase.REVIVING && state.activeColor == bottomColor,
-                selectedRevivePieceId = state.selectedRevivePieceId,
-                onSelectRevivePiece = onSelectRevivePiece,
-                showInlineCapturedTray = true,
-                isLocalUser = lanState.isRemoteConnected && localPlayer == bottomPlayer,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Generously proportioned UNO Deck + Turn Status + Forfeit card
-            Surface(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = colors.surface,
-                border = BorderStroke(1.dp, colors.hairline)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(
+                PlayerStripCard(
+                    player = topPlayer,
+                    displayName = resolvePlayerLabel(topPlayer, opponentMode, lanState.isRemoteConnected),
+                    color = topColor,
+                    isActiveTurn = state.activePlayer == topPlayer && state.outcome == null,
+                    isInCheck = checkedColor == topColor,
+                    capturedOwnPieces = state.capturedPieces[topColor].orEmpty(),
+                    isReviveSelectable = isLocalTurn && state.phase == TurnPhase.REVIVING && state.activeColor == topColor,
+                    selectedRevivePieceId = state.selectedRevivePieceId,
+                    onSelectRevivePiece = onSelectRevivePiece,
+                    showInlineCapturedTray = true,
+                    isLocalUser = lanState.isRemoteConnected && localPlayer == topPlayer,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(
-                            horizontal = if (isSpaciousBottom) 12.dp else 8.dp,
-                            vertical = if (isSpaciousBottom) 11.dp else 7.dp
-                        ),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (isSpaciousBottom) 12.dp else 10.dp)
+                        .padding(horizontal = chromeHorizontalPadding)
+                )
+
+                // Full-width edge-to-edge square chessboard + floating overlays
+                Box(
+                    modifier = Modifier.size(boardSize),
+                    contentAlignment = Alignment.Center
                 ) {
-                    UnoDeckAndActiveCardRow(
-                        drawPileCount = state.drawPile.size,
-                        canDraw = isLocalTurn && state.phase == TurnPhase.AWAITING_DRAW && state.outcome == null,
-                        activeCard = state.activeCard,
-                        drawRevision = state.drawRevision,
-                        cardTheme = cardTheme,
-                        onDrawClick = onDrawCard,
-                        pityCount = state.movePityCount[state.activePlayer] ?: 0,
-                        cardWidth = deckCardWidth
-                    )
-
-                    TurnStatusSummary(
+                    ChessBoardView(
                         state = state,
-                        opponentMode = opponentMode,
-                        isLanConnected = lanState.isRemoteConnected,
-                        isAiThinking = isAiThinking,
-                        waitingForRemotePlayer = waitingForRemoteLan,
-                        remoteChannelLabel = if (lanState.role.isOnline) "the internet" else "Wi-Fi",
-                        modifier = Modifier.weight(1f)
+                        onSquareTapped = onSquareTapped,
+                        edgeToEdge = isEdgeToEdgeBoard,
+                        modifier = Modifier.fillMaxSize()
                     )
 
-                    ForfeitCompactButton(
-                        enabled = state.outcome == null,
-                        onClick = onRequestForfeit
+                    NoticeBannerHost(
+                        notice = state.noticeBanner,
+                        onDismiss = onDismissNotice,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     )
+
+                    state.outcome?.let { outcome ->
+                        GameOverBannerCard(
+                            outcome = outcome,
+                            opponentMode = opponentMode,
+                            isLanConnected = lanState.isRemoteConnected,
+                            onNewGame = onInstantNewGame,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
                 }
-            }
 
-            // Context-sensitive action panel (when active)
-            val showActionCard = isLocalTurn && state.outcome == null && (
-                state.phase == TurnPhase.MERGING ||
-                    state.phase == TurnPhase.SACRIFICING ||
-                    state.phase == TurnPhase.PROMOTING_PAWN ||
-                    state.phase == TurnPhase.SWAPPING ||
-                    state.phase == TurnPhase.CLONING ||
-                    state.phase == TurnPhase.WILD_CHOOSING
-                )
-            if (showActionCard) {
-                when (state.phase) {
-                    TurnPhase.MERGING -> MergeActionCard(
-                        state = state,
-                        onConfirmMerge = onConfirmMerge,
-                        onClearSelection = onClearMergeSelection,
-                        onSkipMerge = onSkipMerge,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TurnPhase.SACRIFICING -> SacrificeActionCard(
-                        state = state,
-                        onConfirmSacrifice = onConfirmSacrifice,
-                        onSkipSacrifice = onSkipSacrifice,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TurnPhase.PROMOTING_PAWN -> PawnPromoteActionCard(
-                        state = state,
-                        onConfirmPawnPromote = onConfirmPawnPromote,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TurnPhase.SWAPPING -> SwapActionCard(
-                        state = state,
-                        onClearSelection = onClearSwapSelection,
-                        onSkipSwap = onSkipSwap,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TurnPhase.CLONING -> CloneActionCard(
-                        state = state,
-                        onClearSelection = onClearCloneSelection,
-                        onSkipClone = onSkipClone,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TurnPhase.WILD_CHOOSING -> WildCardActionCard(
-                        state = state,
-                        onSelectWildEffect = onSelectWildEffect,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    else -> Unit
-                }
-            }
-
-            // Move Log expands to fill ALL remaining bottom space cleanly!
-            if (!showActionCard || isSpaciousBottom) {
-                GameLogCard(
-                    entries = state.gameLog,
-                    maxHeight = null,
-                    showHeader = !showActionCard,
-                    onClick = onOpenMatchLog,
+                PlayerStripCard(
+                    player = bottomPlayer,
+                    displayName = resolvePlayerLabel(bottomPlayer, opponentMode, lanState.isRemoteConnected),
+                    color = bottomColor,
+                    isActiveTurn = state.activePlayer == bottomPlayer && state.outcome == null,
+                    isInCheck = checkedColor == bottomColor,
+                    capturedOwnPieces = state.capturedPieces[bottomColor].orEmpty(),
+                    isReviveSelectable = isLocalTurn && state.phase == TurnPhase.REVIVING && state.activeColor == bottomColor,
+                    selectedRevivePieceId = state.selectedRevivePieceId,
+                    onSelectRevivePiece = onSelectRevivePiece,
+                    showInlineCapturedTray = true,
+                    isLocalUser = lanState.isRemoteConnected && localPlayer == bottomPlayer,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
+                        .padding(horizontal = chromeHorizontalPadding)
                 )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            // Spacious UNO Deck + Turn Status card (Forfeit moved to top-bar Match Menu)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = chromeHorizontalPadding),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = colors.surface,
+                    border = BorderStroke(1.dp, colors.hairline)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        UnoDeckAndActiveCardRow(
+                            drawPileCount = state.drawPile.size,
+                            canDraw = isLocalTurn && state.phase == TurnPhase.AWAITING_DRAW && state.outcome == null,
+                            activeCard = state.activeCard,
+                            drawRevision = state.drawRevision,
+                            cardTheme = cardTheme,
+                            onDrawClick = onDrawCard,
+                            pityCount = state.movePityCount[state.activePlayer] ?: 0,
+                            cardWidth = deckCardWidth
+                        )
+
+                        TurnStatusSummary(
+                            state = state,
+                            opponentMode = opponentMode,
+                            isLanConnected = lanState.isRemoteConnected,
+                            isAiThinking = isAiThinking,
+                            waitingForRemotePlayer = waitingForRemoteLan,
+                            remoteChannelLabel = if (lanState.role.isOnline) "the internet" else "Wi-Fi",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                if (showActionCard) {
+                    when (state.phase) {
+                        TurnPhase.MERGING -> MergeActionCard(
+                            state = state,
+                            onConfirmMerge = onConfirmMerge,
+                            onClearSelection = onClearMergeSelection,
+                            onSkipMerge = onSkipMerge,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.SACRIFICING -> SacrificeActionCard(
+                            state = state,
+                            onConfirmSacrifice = onConfirmSacrifice,
+                            onSkipSacrifice = onSkipSacrifice,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.PROMOTING_PAWN -> PawnPromoteActionCard(
+                            state = state,
+                            onConfirmPawnPromote = onConfirmPawnPromote,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.SWAPPING -> SwapActionCard(
+                            state = state,
+                            onClearSelection = onClearSwapSelection,
+                            onSkipSwap = onSkipSwap,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.CLONING -> CloneActionCard(
+                            state = state,
+                            onClearSelection = onClearCloneSelection,
+                            onSkipClone = onSkipClone,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.WILD_CHOOSING -> WildCardActionCard(
+                            state = state,
+                            onSelectWildEffect = onSelectWildEffect,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        else -> Unit
+                    }
+                }
             }
         }
     }
@@ -757,8 +764,10 @@ private fun ExpandedTabletopLayout(
     val checkedColor = state.checkedKingSquare?.let { sq -> state.board[sq.row][sq.col]?.color }
 
     Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(18.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Column(
             modifier = Modifier
@@ -822,16 +831,18 @@ private fun ExpandedTabletopLayout(
                 .weight(0.95f)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             MinimalHeaderBar(
                 isLanConnected = lanState.isRemoteConnected,
                 isOnline = lanState.role.isOnline,
+                canForfeit = state.outcome == null,
                 currentStreak = matchStats.currentStreak,
                 onOpenMatchLog = onOpenMatchLog,
                 onOpenSettings = onOpenSettings,
                 onOpenLan = onOpenLan,
                 onOpenRules = onOpenRules,
+                onRequestForfeit = onRequestForfeit,
                 onRequestReset = onRequestReset
             )
 
@@ -851,14 +862,14 @@ private fun ExpandedTabletopLayout(
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = colors.surface,
                 border = BorderStroke(1.dp, colors.hairline)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
+                        .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -872,25 +883,15 @@ private fun ExpandedTabletopLayout(
                         pityCount = state.movePityCount[state.activePlayer] ?: 0,
                         cardWidth = 72.dp
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TurnStatusSummary(
-                            state = state,
-                            opponentMode = opponentMode,
-                            isLanConnected = lanState.isRemoteConnected,
-                            isAiThinking = isAiThinking,
-                            waitingForRemotePlayer = waitingForRemoteLan,
-                            remoteChannelLabel = if (lanState.role.isOnline) "the internet" else "Wi-Fi",
-                            modifier = Modifier.weight(1f)
-                        )
-                        ForfeitCompactButton(
-                            enabled = state.outcome == null,
-                            onClick = onRequestForfeit
-                        )
-                    }
+                    TurnStatusSummary(
+                        state = state,
+                        opponentMode = opponentMode,
+                        isLanConnected = lanState.isRemoteConnected,
+                        isAiThinking = isAiThinking,
+                        waitingForRemotePlayer = waitingForRemoteLan,
+                        remoteChannelLabel = if (lanState.role.isOnline) "the internet" else "Wi-Fi",
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
@@ -950,16 +951,19 @@ private fun ExpandedTabletopLayout(
 private fun MinimalHeaderBar(
     isLanConnected: Boolean,
     isOnline: Boolean = false,
+    canForfeit: Boolean = true,
     currentStreak: Int,
     onOpenMatchLog: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLan: () -> Unit,
     onOpenRules: () -> Unit,
+    onRequestForfeit: () -> Unit,
     onRequestReset: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LocalUnoChessColors.current
     val matchLogCd = stringResource(R.string.cd_match_log_button)
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = modifier
@@ -970,7 +974,7 @@ private fun MinimalHeaderBar(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
                 text = stringResource(R.string.app_name),
@@ -982,7 +986,7 @@ private fun MinimalHeaderBar(
                 softWrap = false
             )
 
-            // Compact Win Streak & Match Log pill (48dp touch height via vertical click box)
+            // Tactile Win Streak & Match Log pill (48dp touch height)
             Box(
                 modifier = Modifier
                     .heightIn(min = 48.dp)
@@ -993,7 +997,7 @@ private fun MinimalHeaderBar(
             ) {
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(
                             if (currentStreak > 0) {
                                 colors.accentTrade.copy(alpha = 0.14f)
@@ -1008,17 +1012,17 @@ private fun MinimalHeaderBar(
                             } else {
                                 colors.hairline
                             },
-                            shape = RoundedCornerShape(14.dp)
+                            shape = RoundedCornerShape(16.dp)
                         )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.LocalFireDepartment,
                         contentDescription = null,
                         tint = if (currentStreak > 0) colors.accentTrade else colors.inkMuted,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = "$currentStreak",
@@ -1033,15 +1037,15 @@ private fun MinimalHeaderBar(
             }
         }
 
-        // Crisp icon-only actions — zero text wrapping on any screen width (e.g. Samsung portrait)
+        // 3 comfortable 48dp touch targets — Multiplayer, Settings, and Match Actions menu
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(0.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             IconButton(
                 onClick = onOpenLan,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .testTag("lan_button")
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -1049,13 +1053,13 @@ private fun MinimalHeaderBar(
                         imageVector = if (isOnline) Icons.Rounded.Public else Icons.Rounded.Wifi,
                         contentDescription = stringResource(R.string.cd_lan_button),
                         tint = if (isLanConnected) colors.accentRevive else colors.inkSecondary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     if (isLanConnected) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .size(7.dp)
+                                .size(8.dp)
                                 .clip(CircleShape)
                                 .background(colors.accentRevive)
                         )
@@ -1064,90 +1068,130 @@ private fun MinimalHeaderBar(
             }
 
             IconButton(
-                onClick = onOpenRules,
-                modifier = Modifier
-                    .size(44.dp)
-                    .testTag("rules_button")
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
-                    contentDescription = stringResource(R.string.cd_rules_button),
-                    tint = colors.inkSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            IconButton(
-                onClick = onRequestReset,
-                modifier = Modifier
-                    .size(44.dp)
-                    .testTag("new_game_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Refresh,
-                    contentDescription = stringResource(R.string.cd_new_game_button),
-                    tint = colors.inkPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            IconButton(
                 onClick = onOpenSettings,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .testTag("settings_button")
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Tune,
                     contentDescription = stringResource(R.string.cd_settings_button),
                     tint = colors.inkPrimary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
+
+            Box {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("match_menu_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = stringResource(R.string.cd_match_menu_button),
+                        tint = colors.inkPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    containerColor = colors.surface,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, colors.hairline)
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.action_rules),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = colors.inkPrimary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
+                                contentDescription = null,
+                                tint = colors.inkSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenRules()
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("rules_button")
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.action_new_game),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = colors.inkPrimary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = colors.inkPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onRequestReset()
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("new_game_button")
+                    )
+
+                    HorizontalDivider(
+                        color = colors.hairline,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.action_forfeit_match),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = if (canForfeit) colors.accentCheck else colors.inkMuted,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Flag,
+                                contentDescription = null,
+                                tint = if (canForfeit) colors.accentCheck else colors.inkMuted,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        enabled = canForfeit,
+                        onClick = {
+                            menuExpanded = false
+                            onRequestForfeit()
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("forfeit_button")
+                    )
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun ForfeitCompactButton(
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = LocalUnoChessColors.current
-    val cdText = stringResource(R.string.cd_forfeit_button)
-
-    Column(
-        modifier = modifier
-            .size(width = 50.dp, height = 52.dp)
-            .alpha(if (enabled) 1f else 0.35f)
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.accentCheck.copy(alpha = 0.08f))
-            .border(1.dp, colors.accentCheck.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-            .testTag("forfeit_button")
-            .semantics { contentDescription = cdText }
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 4.dp, horizontal = 2.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Flag,
-            contentDescription = null,
-            tint = colors.accentCheck,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = stringResource(R.string.action_forfeit),
-            style = MaterialTheme.typography.labelSmall.copy(
-                color = colors.accentCheck,
-                fontWeight = FontWeight.Bold,
-                fontSize = 9.sp
-            ),
-            maxLines = 1,
-            softWrap = false
-        )
     }
 }
 
@@ -1171,10 +1215,10 @@ private fun NoticeBannerHost(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(bg.copy(alpha = 0.94f))
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(bg.copy(alpha = 0.95f))
                     .clickable { onDismiss() }
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
                     .testTag("notice_banner"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1186,17 +1230,19 @@ private fun NoticeBannerHost(
                         fontWeight = FontWeight.Medium
                     ),
                     maxLines = 2,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 4.dp)
                 )
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.action_close),
-                        tint = fg.copy(alpha = 0.85f),
-                        modifier = Modifier.size(14.dp)
+                        tint = fg.copy(alpha = 0.9f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

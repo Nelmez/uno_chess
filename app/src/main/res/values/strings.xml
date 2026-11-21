@@ -89,9 +89,11 @@
     <string name="action_done">Done</string>
     <string name="cd_settings_button">Open settings</string>
     <string name="cd_lan_button">Open multiplayer</string>
+    <string name="cd_match_menu_button">Open match options</string>
     <string name="cd_forfeit_button">Forfeit current match</string>
     <string name="cd_match_log_button">Open win streak and match log</string>
     <string name="action_forfeit">Forfeit</string>
+    <string name="action_forfeit_match">Forfeit Match</string>
     <string name="dialog_forfeit_title">Forfeit Match?</string>
     <string name="dialog_forfeit_message">You will concede this match and award the win to your opponent.</string>
     <string name="action_confirm_forfeit">Forfeit</string>
