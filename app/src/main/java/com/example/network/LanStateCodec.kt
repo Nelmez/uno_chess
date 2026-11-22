@@ -39,6 +39,10 @@ sealed interface LanAction {
     data object ClearCloneSelection : LanAction
     data object SkipClone : LanAction
     data class SelectWildEffect(val effect: SpecialCardKey) : LanAction
+    data class ChooseDrawTwo(val index: Int) : LanAction
+    data object SkipSniper : LanAction
+    data object SkipPortal : LanAction
+    data object SkipTrap : LanAction
     data object Forfeit : LanAction
     data object ResetGame : LanAction
 }
@@ -86,6 +90,13 @@ object LanStateCodec {
                 obj.put("kind", "WILD_SELECT")
                 obj.put("effect", action.effect.name)
             }
+            is LanAction.ChooseDrawTwo -> {
+                obj.put("kind", "CHOOSE_DRAW_TWO")
+                obj.put("index", action.index)
+            }
+            LanAction.SkipSniper -> obj.put("kind", "SKIP_SNIPER")
+            LanAction.SkipPortal -> obj.put("kind", "SKIP_PORTAL")
+            LanAction.SkipTrap -> obj.put("kind", "SKIP_TRAP")
             LanAction.Forfeit -> obj.put("kind", "FORFEIT")
             LanAction.ResetGame -> obj.put("kind", "RESET")
         }
@@ -113,6 +124,10 @@ object LanStateCodec {
                 "CLONE_CLEAR" -> LanAction.ClearCloneSelection
                 "CLONE_SKIP" -> LanAction.SkipClone
                 "WILD_SELECT" -> LanAction.SelectWildEffect(SpecialCardKey.valueOf(obj.getString("effect")))
+                "CHOOSE_DRAW_TWO" -> LanAction.ChooseDrawTwo(obj.getInt("index"))
+                "SKIP_SNIPER" -> LanAction.SkipSniper
+                "SKIP_PORTAL" -> LanAction.SkipPortal
+                "SKIP_TRAP" -> LanAction.SkipTrap
                 "FORFEIT" -> LanAction.Forfeit
                 "RESET" -> LanAction.ResetGame
                 else -> null
@@ -207,6 +222,23 @@ object LanStateCodec {
         val enabledArr = JSONArray()
         state.enabledSpecialCards.forEach { enabledArr.put(it.name) }
         obj.put("enabledSpecialCards", enabledArr)
+
+        val trapsArr = JSONArray()
+        state.traps.forEach { t ->
+            trapsArr.put(JSONObject().apply {
+                put("r", t.square.row)
+                put("c", t.square.col)
+                put("by", t.placedBy.name)
+            })
+        }
+        obj.put("traps", trapsArr)
+
+        if (state.drawTwoPendingCards != null) {
+            val pairArr = JSONArray()
+            pairArr.put(encodeCard(state.drawTwoPendingCards.first))
+            pairArr.put(encodeCard(state.drawTwoPendingCards.second))
+            obj.put("drawTwoPending", pairArr)
+        }
 
         obj.put("selectedSquare", state.selectedSquare?.let(::encodeSquare) ?: JSONObject.NULL)
         obj.put("selectedRevivePieceId", state.selectedRevivePieceId ?: JSONObject.NULL)
@@ -591,12 +623,40 @@ object LanStateCodec {
                 )
             }
 
+            val trapsArr = obj.optJSONArray("traps")
+            val trapsList = if (trapsArr != null) {
+                List(trapsArr.length()) { i ->
+                    val t = trapsArr.getJSONObject(i)
+                    com.example.model.Trap(
+                        square = Square(t.getInt("r"), t.getInt("c")),
+                        placedBy = PlayerId.valueOf(t.getString("by"))
+                    )
+                }
+            } else emptyList()
+
+            val dtpArr = obj.optJSONArray("drawTwoPending")
+            val drawTwoPendingCards = if (dtpArr != null && dtpArr.length() >= 2) {
+                Pair(decodeCard(dtpArr.getJSONObject(0)), decodeCard(dtpArr.getJSONObject(1)))
+            } else null
+
+            val validSniperSources = if (phase == TurnPhase.SNIPING) {
+                com.example.engine.ChessEngine.getValidSniperSources(board, activeColor, protectedOpponentIds).toSet()
+            } else emptySet()
+
+            val validPortalSources = if (phase == TurnPhase.PORTALING) {
+                com.example.engine.ChessEngine.getValidPortalSources(board, activeColor).toSet()
+            } else emptySet()
+
+            val validTrapSquares = if (phase == TurnPhase.TRAPPING) {
+                com.example.engine.ChessEngine.getValidTrapSquares(board, trapsList.map { it.square }).toSet()
+            } else emptySet()
+
             GameUiState(
                 board = board,
                 playerColors = playerColors,
                 activePlayer = activePlayer,
                 boardFlipped = obj.getBoolean("boardFlipped"),
-                phase = TurnPhase.valueOf(obj.getString("phase")),
+                phase = phase,
                 drawPile = decodeCards(obj.getJSONArray("drawPile")),
                 discardPile = decodeCards(obj.getJSONArray("discardPile")),
                 activeCard = obj.optJSONObject("activeCard")?.let(::decodeCard),
@@ -623,6 +683,11 @@ object LanStateCodec {
                 validSwapSquares = validSwapSet,
                 selectedCloneSourceSquare = selectedCloneSourceSquare,
                 validCloneSquares = validCloneSet,
+                traps = trapsList,
+                validSniperSourceSquares = validSniperSources,
+                validPortalSourceSquares = validPortalSources,
+                validTrapSquares = validTrapSquares,
+                drawTwoPendingCards = drawTwoPendingCards,
                 availableWildEffects = availableWildEffects,
                 enabledSpecialCards = enabledSpecialCards,
                 selectedSquare = selectedSquare,
@@ -699,6 +764,10 @@ object LanStateCodec {
             UnoCardType.SwapPositions -> put("tk", "SWAP")
             UnoCardType.Clone -> put("tk", "CLONE")
             UnoCardType.Wild -> put("tk", "WILD")
+            UnoCardType.Sniper -> put("tk", "SNIPER")
+            UnoCardType.Portal -> put("tk", "PORTAL")
+            UnoCardType.TrapCard -> put("tk", "TRAP")
+            UnoCardType.DrawTwo -> put("tk", "DRAW_TWO")
         }
     }
 
@@ -716,6 +785,10 @@ object LanStateCodec {
             "SWAP" -> UnoCardType.SwapPositions
             "CLONE" -> UnoCardType.Clone
             "WILD" -> UnoCardType.Wild
+            "SNIPER" -> UnoCardType.Sniper
+            "PORTAL" -> UnoCardType.Portal
+            "TRAP" -> UnoCardType.TrapCard
+            "DRAW_TWO" -> UnoCardType.DrawTwo
             else -> UnoCardType.NumberCard(1)
         }
         return UnoCard(

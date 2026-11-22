@@ -99,4 +99,23 @@ class GithubReleaseJsonTest {
         assertEquals(6, release.versionCode)
         assertEquals("1.4", release.versionName)
     }
+
+    @Test
+    fun parsesVersion142Tag() {
+        val release = GithubReleaseJson.parse(
+            """
+            {
+              "tag_name": "v1.4.2",
+              "name": "1.4.2",
+              "body": "Sniper, Portal, Trap, and Draw Two special cards.",
+              "assets": [
+                {"name": "unochess.apk", "browser_download_url": "https://github.com/Nelmez/uno_chess/releases/download/v1.4.2/unochess.apk"}
+              ]
+            }
+            """.trimIndent()
+        )
+        checkNotNull(release)
+        assertEquals(7, release.versionCode)
+        assertEquals("1.4.2", release.versionName)
+    }
 }

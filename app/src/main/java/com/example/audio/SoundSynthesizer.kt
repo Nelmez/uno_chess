@@ -37,6 +37,11 @@ object SoundSynthesizer {
             SoundEffect.SPECIAL_CLONE -> synthSpecialClone()
             SoundEffect.SPECIAL_WILD -> synthSpecialWild()
             SoundEffect.SPECIAL_SUICIDE -> synthSpecialSuicide()
+            SoundEffect.SPECIAL_SNIPER -> synthSpecialSniper()
+            SoundEffect.SPECIAL_PORTAL -> synthSpecialPortal()
+            SoundEffect.SPECIAL_TRAP_ARM -> synthSpecialTrapArm()
+            SoundEffect.SPECIAL_TRAP_TRIGGER -> synthSpecialTrapTrigger()
+            SoundEffect.SPECIAL_DRAW_TWO -> synthSpecialDrawTwo()
         }
         return normalizeAndConvert(raw)
     }
@@ -342,6 +347,46 @@ object SoundSynthesizer {
         val buf = DoubleArray(n)
         addPitchSweep(buf, startSec = 0.00, durationSec = 0.18, startFreq = 246.94, endFreq = 174.61, gain = 0.65) // B3 -> F3 tritone
         addPitchSweep(buf, startSec = 0.14, durationSec = 0.25, startFreq = 174.61, endFreq = 82.41, gain = 0.80) // F3 -> E2
+        return buf
+    }
+
+    private fun synthSpecialSniper(): DoubleArray {
+        val n = samplesForMs(240)
+        val buf = DoubleArray(n)
+        addPitchSweep(buf, startSec = 0.0, durationSec = 0.08, startFreq = 1600.0, endFreq = 220.0, gain = 0.95)
+        addWoodTap(buf, startSec = 0.002, baseFreq = 420.0, endFreq = 110.0, bodyFreq = 280.0, gain = 0.9, seed = 711)
+        return buf
+    }
+
+    private fun synthSpecialPortal(): DoubleArray {
+        val n = samplesForMs(320)
+        val buf = DoubleArray(n)
+        addPitchSweep(buf, startSec = 0.0, durationSec = 0.28, startFreq = 240.0, endFreq = 980.0, gain = 0.85)
+        addBellTone(buf, startSec = 0.12, freq = 660.0, durationSec = 0.2, gain = 0.6, brightness = 0.8)
+        return buf
+    }
+
+    private fun synthSpecialTrapArm(): DoubleArray {
+        val n = samplesForMs(180)
+        val buf = DoubleArray(n)
+        addWoodTap(buf, startSec = 0.0, baseFreq = 800.0, endFreq = 300.0, bodyFreq = 450.0, gain = 0.7, seed = 123)
+        addWoodTap(buf, startSec = 0.06, baseFreq = 950.0, endFreq = 400.0, bodyFreq = 600.0, gain = 0.85, seed = 456)
+        return buf
+    }
+
+    private fun synthSpecialTrapTrigger(): DoubleArray {
+        val n = samplesForMs(300)
+        val buf = DoubleArray(n)
+        addPitchSweep(buf, startSec = 0.0, durationSec = 0.14, startFreq = 380.0, endFreq = 65.0, gain = 1.0)
+        addWoodTap(buf, startSec = 0.001, baseFreq = 220.0, endFreq = 55.0, bodyFreq = 110.0, gain = 0.95, seed = 999)
+        return buf
+    }
+
+    private fun synthSpecialDrawTwo(): DoubleArray {
+        val n = samplesForMs(220)
+        val buf = DoubleArray(n)
+        addPitchSweep(buf, startSec = 0.0, durationSec = 0.09, startFreq = 340.0, endFreq = 680.0, gain = 0.75)
+        addPitchSweep(buf, startSec = 0.07, durationSec = 0.11, startFreq = 420.0, endFreq = 840.0, gain = 0.85)
         return buf
     }
 

@@ -94,10 +94,14 @@ import com.example.ui.components.MatchLogModalDialog
 import com.example.ui.components.MergeActionCard
 import com.example.ui.components.PawnPromoteActionCard
 import com.example.ui.components.PlayerStripCard
+import com.example.ui.components.PortalActionCard
 import com.example.ui.components.PromotionPickerDialog
 import com.example.ui.components.ResetConfirmDialog
 import com.example.ui.components.RulesModalDialog
 import com.example.ui.components.SacrificeActionCard
+import com.example.ui.components.SniperActionCard
+import com.example.ui.components.TrapActionCard
+import com.example.ui.components.DrawTwoActionCard
 import android.os.Handler
 import android.os.Looper
 import com.example.BuildConfig
@@ -300,6 +304,10 @@ fun UnoChessScreen(
                         onClearCloneSelection = viewModel::onClearCloneSelection,
                         onSkipClone = viewModel::onSkipClone,
                         onSelectWildEffect = viewModel::onSelectWildEffect,
+                        onSkipSniper = viewModel::onSkipSniper,
+                        onSkipPortal = viewModel::onSkipPortal,
+                        onSkipTrap = viewModel::onSkipTrap,
+                        onChooseDrawTwo = viewModel::onChooseDrawTwo,
                         onDismissNotice = viewModel::dismissNotice,
                         onOpenSettings = { showSettingsModal = true },
                         onOpenLan = {
@@ -337,6 +345,10 @@ fun UnoChessScreen(
                         onClearCloneSelection = viewModel::onClearCloneSelection,
                         onSkipClone = viewModel::onSkipClone,
                         onSelectWildEffect = viewModel::onSelectWildEffect,
+                        onSkipSniper = viewModel::onSkipSniper,
+                        onSkipPortal = viewModel::onSkipPortal,
+                        onSkipTrap = viewModel::onSkipTrap,
+                        onChooseDrawTwo = viewModel::onChooseDrawTwo,
                         onDismissNotice = viewModel::dismissNotice,
                         onOpenSettings = { showSettingsModal = true },
                         onOpenLan = {
@@ -496,6 +508,10 @@ private fun CompactPortraitLayout(
     onClearCloneSelection: () -> Unit,
     onSkipClone: () -> Unit,
     onSelectWildEffect: (SpecialCardKey) -> Unit,
+    onSkipSniper: () -> Unit,
+    onSkipPortal: () -> Unit,
+    onSkipTrap: () -> Unit,
+    onChooseDrawTwo: (Int) -> Unit,
     onDismissNotice: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLan: () -> Unit,
@@ -524,7 +540,11 @@ private fun CompactPortraitLayout(
                 state.phase == TurnPhase.PROMOTING_PAWN ||
                 state.phase == TurnPhase.SWAPPING ||
                 state.phase == TurnPhase.CLONING ||
-                state.phase == TurnPhase.WILD_CHOOSING
+                state.phase == TurnPhase.WILD_CHOOSING ||
+                state.phase == TurnPhase.SNIPING ||
+                state.phase == TurnPhase.PORTALING ||
+                state.phase == TurnPhase.TRAPPING ||
+                state.phase == TurnPhase.DRAW_TWO_CHOOSING
             )
         val chromeHorizontalPadding = if (maxWidth >= 380.dp) 16.dp else 12.dp
         val maxBoardWidth = maxWidth.coerceAtMost(560.dp)
@@ -714,6 +734,26 @@ private fun CompactPortraitLayout(
                             onSelectWildEffect = onSelectWildEffect,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        TurnPhase.SNIPING -> SniperActionCard(
+                            state = state,
+                            onSkipSniper = onSkipSniper,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.PORTALING -> PortalActionCard(
+                            state = state,
+                            onSkipPortal = onSkipPortal,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.TRAPPING -> TrapActionCard(
+                            state = state,
+                            onSkipTrap = onSkipTrap,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TurnPhase.DRAW_TWO_CHOOSING -> DrawTwoActionCard(
+                            state = state,
+                            onChooseDrawTwo = onChooseDrawTwo,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         else -> Unit
                     }
                 }
@@ -747,6 +787,10 @@ private fun ExpandedTabletopLayout(
     onClearCloneSelection: () -> Unit,
     onSkipClone: () -> Unit,
     onSelectWildEffect: (SpecialCardKey) -> Unit,
+    onSkipSniper: () -> Unit,
+    onSkipPortal: () -> Unit,
+    onSkipTrap: () -> Unit,
+    onChooseDrawTwo: (Int) -> Unit,
     onDismissNotice: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLan: () -> Unit,
@@ -925,6 +969,22 @@ private fun ExpandedTabletopLayout(
                     TurnPhase.WILD_CHOOSING -> WildCardActionCard(
                         state = state,
                         onSelectWildEffect = onSelectWildEffect
+                    )
+                    TurnPhase.SNIPING -> SniperActionCard(
+                        state = state,
+                        onSkipSniper = onSkipSniper
+                    )
+                    TurnPhase.PORTALING -> PortalActionCard(
+                        state = state,
+                        onSkipPortal = onSkipPortal
+                    )
+                    TurnPhase.TRAPPING -> TrapActionCard(
+                        state = state,
+                        onSkipTrap = onSkipTrap
+                    )
+                    TurnPhase.DRAW_TWO_CHOOSING -> DrawTwoActionCard(
+                        state = state,
+                        onChooseDrawTwo = onChooseDrawTwo
                     )
                     else -> Unit
                 }

@@ -101,7 +101,11 @@ enum class SpecialCardKey(
     HIJACK("Hijack", "⚡", 2),
     PROMOTE("Promote", "↑", 2),
     SUICIDE("Suicide", "✕", 2),
-    WILD("Wild", "✦", 1)
+    WILD("Wild", "✦", 1),
+    SNIPER("Sniper", "🎯", 2),
+    PORTAL("Portal", "🌀", 2),
+    TRAP("Trap", "💣", 2),
+    DRAW_TWO("Draw Two", "+2", 2)
 }
 
 sealed interface UnoCardType {
@@ -117,6 +121,10 @@ sealed interface UnoCardType {
     data object SwapPositions : UnoCardType
     data object Clone : UnoCardType
     data object Wild : UnoCardType
+    data object Sniper : UnoCardType
+    data object Portal : UnoCardType
+    data object TrapCard : UnoCardType
+    data object DrawTwo : UnoCardType
 
     fun shortSymbol(): String = when (this) {
         is NumberCard -> moves.toString()
@@ -131,6 +139,10 @@ sealed interface UnoCardType {
         SwapPositions -> "⇄"
         Clone -> "⧉"
         Wild -> "✦"
+        Sniper -> "🎯"
+        Portal -> "🌀"
+        TrapCard -> "💣"
+        DrawTwo -> "+2"
     }
 
     fun title(): String = when (this) {
@@ -146,6 +158,10 @@ sealed interface UnoCardType {
         SwapPositions -> "Swap"
         Clone -> "Clone"
         Wild -> "Wild Card"
+        Sniper -> "Sniper"
+        Portal -> "Portal"
+        TrapCard -> "Trap"
+        DrawTwo -> "Draw Two"
     }
 
     fun subtitle(): String = when (this) {
@@ -161,6 +177,10 @@ sealed interface UnoCardType {
         SwapPositions -> "Swap positions of 2 of your pieces"
         Clone -> "Duplicate 1 Pawn, Knight, or Bishop"
         Wild -> "Choose any enabled special card effect"
+        Sniper -> "Capture 1 enemy piece along an attack ray without moving"
+        Portal -> "Teleport 1 of your non-King pieces to any safe empty square"
+        TrapCard -> "Arm a hidden trap on an empty square; first piece entering is destroyed"
+        DrawTwo -> "Draw 2 cards and choose 1 to play for this turn"
     }
 }
 
@@ -200,8 +220,17 @@ enum class TurnPhase {
     SWAPPING,
     CLONING,
     WILD_CHOOSING,
+    SNIPING,
+    PORTALING,
+    TRAPPING,
+    DRAW_TWO_CHOOSING,
     GAME_OVER
 }
+
+data class Trap(
+    val square: Square,
+    val placedBy: PlayerId
+)
 
 sealed interface GameOutcome {
     data class Checkmate(
@@ -267,6 +296,10 @@ enum class LogCategory {
     SWAP,
     CLONE,
     WILD,
+    SNIPER,
+    PORTAL,
+    TRAP,
+    DRAW_TWO,
     SYSTEM,
     GAME_OVER
 }
@@ -337,6 +370,15 @@ data class GameUiState(
     val validSwapSquares: Set<Square> = emptySet(),
     val selectedCloneSourceSquare: Square? = null,
     val validCloneSquares: Set<Square> = emptySet(),
+    val traps: List<Trap> = emptyList(),
+    val selectedSniperSourceSquare: Square? = null,
+    val validSniperSourceSquares: Set<Square> = emptySet(),
+    val validSniperTargetSquares: Set<Square> = emptySet(),
+    val selectedPortalSourceSquare: Square? = null,
+    val validPortalSourceSquares: Set<Square> = emptySet(),
+    val validPortalDestinationSquares: Set<Square> = emptySet(),
+    val validTrapSquares: Set<Square> = emptySet(),
+    val drawTwoPendingCards: Pair<UnoCard, UnoCard>? = null,
     val availableWildEffects: List<SpecialCardKey> = emptyList(),
     val enabledSpecialCards: Set<SpecialCardKey> = SpecialCardKey.entries.toSet(),
     val selectedSquare: Square?,

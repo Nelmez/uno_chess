@@ -42,6 +42,16 @@ data class AiCloneDecision(
     val target: Square
 )
 
+data class AiSniperDecision(
+    val sniperSquare: Square,
+    val targetSquare: Square
+)
+
+data class AiPortalDecision(
+    val sourceSquare: Square,
+    val destSquare: Square
+)
+
 /**
  * Local chess + UNO strategy AI supporting Easy, Medium, and Hard difficulties.
  * Respects all legal chess rules, 1-move-per-piece constraints, check-forfeiture,
@@ -644,9 +654,12 @@ object UnoChessAi {
         val priority = if (difficulty == AiDifficulty.HARD) {
             buildList {
                 if (hasHighCaptured) add(SpecialCardKey.REVIVE)
+                add(SpecialCardKey.SNIPER)
                 add(SpecialCardKey.CLONE)
                 add(SpecialCardKey.PROMOTE)
+                add(SpecialCardKey.PORTAL)
                 add(SpecialCardKey.FREEZE)
+                add(SpecialCardKey.TRAP)
                 add(SpecialCardKey.SHIELD)
                 add(SpecialCardKey.HIJACK)
                 add(SpecialCardKey.MERGE)
@@ -656,8 +669,11 @@ object UnoChessAi {
             }
         } else {
             listOf(
+                SpecialCardKey.SNIPER,
                 SpecialCardKey.CLONE,
                 SpecialCardKey.FREEZE,
+                SpecialCardKey.PORTAL,
+                SpecialCardKey.TRAP,
                 SpecialCardKey.SHIELD,
                 SpecialCardKey.PROMOTE,
                 SpecialCardKey.REVIVE,
@@ -669,6 +685,96 @@ object UnoChessAi {
         }
 
         return priority.firstOrNull { it in available } ?: available.first()
+    }
+
+    fun chooseSniperAction(
+        state: GameUiState,
+        difficulty: AiDifficulty,
+        random: Random = Random.Default
+    ): AiSniperDecision? {
+        val sources = state.validSniperSourceSquares.toList()
+        if (sources.isEmpty()) return null
+        val oppColor = state.activeColor.opponent()
+
+        val candidates = mutableListOf<Triple<Square, Square, Int>>()
+        for (src in sources) {
+            val targets = ChessEngine.getValidSniperTargets(state.board, src, oppColor, emptySet())
+            for (tgt in targets) {
+                val p = state.board[tgt.row][tgt.col]
+                val valScore = pieceScore(p?.type)
+                candidates.add(Triple(src, tgt, valScore))
+            }
+        }
+        if (candidates.isEmpty()) return null
+        if (difficulty == AiDifficulty.EASY) {
+            val pick = candidates[random.nextInt(candidates.size)]
+            return AiSniperDecision(pick.first, pick.second)
+        }
+        candidates.sortByDescending { it.third }
+        val top = candidates.first()
+        return AiSniperDecision(top.first, top.second)
+    }
+
+    fun choosePortalAction(
+        state: GameUiState,
+        difficulty: AiDifficulty,
+        random: Random = Random.Default
+    ): AiPortalDecision? {
+        val sources = state.validPortalSourceSquares.toList()
+        if (sources.isEmpty()) return null
+        val activeColor = state.activeColor
+
+        val sortedSources = if (difficulty != AiDifficulty.EASY) {
+            sources.sortedByDescending { sq -> pieceScore(state.board[sq.row][sq.col]?.type) }
+        } else sources
+
+        for (src in sortedSources) {
+            val dests = ChessEngine.getValidPortalDestinations(state.board, activeColor, src)
+            if (dests.isEmpty()) continue
+            if (difficulty == AiDifficulty.EASY) {
+                return AiPortalDecision(src, dests[random.nextInt(dests.size)])
+            }
+            val bestDest = dests.maxByOrNull { centerDistanceBonus(it) } ?: dests.first()
+            return AiPortalDecision(src, bestDest)
+        }
+        return null
+    }
+
+    fun chooseTrapSquare(
+        state: GameUiState,
+        difficulty: AiDifficulty,
+        random: Random = Random.Default
+    ): Square? {
+        val squares = state.validTrapSquares.toList()
+        if (squares.isEmpty()) return null
+        if (difficulty == AiDifficulty.EASY) return squares[random.nextInt(squares.size)]
+
+        return squares.maxByOrNull { centerDistanceBonus(it) }
+    }
+
+    fun chooseDrawTwoCard(
+        state: GameUiState,
+        difficulty: AiDifficulty,
+        random: Random = Random.Default
+    ): Int {
+        val pending = state.drawTwoPendingCards ?: return 0
+        if (difficulty == AiDifficulty.EASY) return if (random.nextBoolean()) 0 else 1
+
+        fun scoreCard(card: com.example.model.UnoCard): Int = when (val t = card.type) {
+            is com.example.model.UnoCardType.NumberCard -> t.moves * 3
+            com.example.model.UnoCardType.Sniper -> 12
+            com.example.model.UnoCardType.RevivePlusTwo -> 10
+            com.example.model.UnoCardType.Freeze -> 8
+            com.example.model.UnoCardType.Portal -> 7
+            com.example.model.UnoCardType.TrapCard -> 6
+            com.example.model.UnoCardType.Clone -> 9
+            com.example.model.UnoCardType.Shield -> 5
+            com.example.model.UnoCardType.Wild -> 11
+            else -> 4
+        }
+        val s0 = scoreCard(pending.first)
+        val s1 = scoreCard(pending.second)
+        return if (s0 >= s1) 0 else 1
     }
 
     private fun chooseEasyMove(

@@ -28,6 +28,7 @@ internal object GithubReleaseJson {
                 "1.3" -> 4
                 "1.3.1" -> 5
                 "1.4" -> 6
+                "1.4.2" -> 7
                 else -> null
             }
             ?: return null

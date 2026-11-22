@@ -43,9 +43,9 @@ class UnoChessEngineTest {
     }
 
     @Test
-    fun `uno deck has exact 38 card distribution with all special cards`() {
+    fun `uno deck has exact 46 card distribution with all special cards`() {
         val deck = UnoDeck.createShuffledDeck(Random(42))
-        assertEquals(38, deck.size)
+        assertEquals(46, deck.size)
         for (n in 1..4) {
             assertEquals(4, deck.count { it.type == UnoCardType.NumberCard(n) })
         }
@@ -60,6 +60,10 @@ class UnoChessEngineTest {
         assertEquals(2, deck.count { it.type == UnoCardType.PawnPromote })
         assertEquals(2, deck.count { it.type == UnoCardType.Suicide })
         assertEquals(1, deck.count { it.type == UnoCardType.Wild })
+        assertEquals(2, deck.count { it.type == UnoCardType.Sniper })
+        assertEquals(2, deck.count { it.type == UnoCardType.Portal })
+        assertEquals(2, deck.count { it.type == UnoCardType.TrapCard })
+        assertEquals(2, deck.count { it.type == UnoCardType.DrawTwo })
     }
 
     @Test
@@ -795,7 +799,7 @@ class UnoChessEngineTest {
     }
 
     @Test
-    fun `new game resets board shuffles 38 card deck and clears special states`() {
+    fun `new game resets board shuffles 46 card deck and clears special states`() {
         val vm = UnoChessViewModel(Random(123))
         val mutatedState = vm.uiState.value.copy(
             activePlayer = PlayerId.PLAYER_2,
@@ -816,7 +820,7 @@ class UnoChessEngineTest {
 
         assertEquals(TurnPhase.AWAITING_DRAW, reset.phase)
         assertEquals(PlayerId.PLAYER_1, reset.activePlayer)
-        assertEquals(38, reset.drawPile.size)
+        assertEquals(46, reset.drawPile.size)
         assertTrue(reset.discardPile.isEmpty())
         assertTrue(reset.movedPieceIdsThisTurn.isEmpty())
         assertTrue(reset.selectedMergeSquares.isEmpty())
@@ -1014,5 +1018,148 @@ class UnoChessEngineTest {
         assertEquals(0, stateAfterNumberDraw.movePityCount[PlayerId.PLAYER_1])
         // Opponent's pity is unaffected
         assertEquals(1, stateAfterNumberDraw.movePityCount[PlayerId.PLAYER_2])
+    }
+
+    @Test
+    fun `sniper card eliminates enemy piece along attack line without moving`() {
+        val vm = UnoChessViewModel(Random(1)) {
+            listOf(
+                UnoCard(1, UnoColor.RED, UnoCardType.NumberCard(1)),
+                UnoCard(2, UnoColor.BLUE, UnoCardType.NumberCard(1)),
+                UnoCard(3, UnoColor.GREEN, UnoCardType.Sniper)
+            )
+        }
+        // P1 moves e2 pawn to e4
+        vm.drawCard()
+        vm.onSquareTapped(Square(6, 4))
+        vm.onSquareTapped(Square(4, 4))
+
+        // P2 moves d7 pawn to d5 (now e4 pawn attacks d5 pawn)
+        vm.drawCard()
+        vm.onSquareTapped(Square(1, 3))
+        vm.onSquareTapped(Square(3, 3))
+
+        // P1 draws Sniper
+        vm.drawCard()
+        assertEquals(TurnPhase.SNIPING, vm.uiState.value.phase)
+        assertTrue(vm.uiState.value.validSniperSourceSquares.contains(Square(4, 4)))
+
+        // P1 selects e4 pawn as sniper source
+        vm.onSquareTapped(Square(4, 4))
+        assertEquals(Square(4, 4), vm.uiState.value.selectedSniperSourceSquare)
+        assertTrue(vm.uiState.value.validSniperTargetSquares.contains(Square(3, 3)))
+
+        // P1 snipes d5 pawn
+        vm.onSquareTapped(Square(3, 3))
+        assertNull(vm.uiState.value.board[3][3])
+        // e4 pawn remains on e4!
+        assertNotNull(vm.uiState.value.board[4][4])
+        assertEquals(PieceType.PAWN, vm.uiState.value.board[4][4]?.type)
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+        assertEquals(PlayerId.PLAYER_2, vm.uiState.value.activePlayer)
+    }
+
+    @Test
+    fun `portal card teleports non-king piece to empty square`() {
+        val vm = UnoChessViewModel(Random(1)) {
+            listOf(
+                UnoCard(1, UnoColor.YELLOW, UnoCardType.Portal)
+            )
+        }
+        vm.drawCard()
+        assertEquals(TurnPhase.PORTALING, vm.uiState.value.phase)
+        // White King on (7,4) cannot be teleported
+        assertFalse(vm.uiState.value.validPortalSourceSquares.contains(Square(7, 4)))
+        // White Knight on (7,1) can be teleported
+        assertTrue(vm.uiState.value.validPortalSourceSquares.contains(Square(7, 1)))
+
+        // Select Knight
+        vm.onSquareTapped(Square(7, 1))
+        assertEquals(Square(7, 1), vm.uiState.value.selectedPortalSourceSquare)
+
+        // Teleport to (4, 4)
+        vm.onSquareTapped(Square(4, 4))
+        assertNull(vm.uiState.value.board[7][1])
+        assertEquals(PieceType.KNIGHT, vm.uiState.value.board[4][4]?.type)
+        assertEquals(PieceColor.WHITE, vm.uiState.value.board[4][4]?.color)
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+        assertEquals(PlayerId.PLAYER_2, vm.uiState.value.activePlayer)
+    }
+
+    @Test
+    fun `trap card arms landmine and destroys stepping piece`() {
+        val vm = UnoChessViewModel(Random(1)) {
+            listOf(
+                UnoCard(1, UnoColor.RED, UnoCardType.TrapCard),
+                UnoCard(2, UnoColor.BLUE, UnoCardType.NumberCard(1))
+            )
+        }
+        vm.drawCard()
+        assertEquals(TurnPhase.TRAPPING, vm.uiState.value.phase)
+
+        // Arm trap on (5, 4)
+        vm.onSquareTapped(Square(5, 4))
+        assertEquals(1, vm.uiState.value.traps.size)
+        assertEquals(Square(5, 4), vm.uiState.value.traps.first().square)
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+        assertEquals(PlayerId.PLAYER_2, vm.uiState.value.activePlayer)
+
+        // P2 draws NumberCard(1) and moves e7 pawn to e5 (3,4) - no trap
+        // Let's set state so P2 moves to (5,4)
+        val customState = vm.uiState.value.copy(
+            phase = TurnPhase.AWAITING_DRAW
+        )
+        vm.setStateForTest(customState)
+        vm.drawCard() // draws NumberCard(1)
+        // Let's test moving a piece onto the trap (5,4)
+        // Move White pawn at (6,4) in next turn or black pawn:
+        // Let's skip to P1 move:
+        // P2 moves Black knight from (0,1) to (2,2)
+        vm.onSquareTapped(Square(0, 1))
+        vm.onSquareTapped(Square(2, 2))
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+
+        // P1 turn: set draw pile to NumberCard(1)
+        val p1Turn = vm.uiState.value.copy(
+            drawPile = listOf(UnoCard(3, UnoColor.YELLOW, UnoCardType.NumberCard(1)))
+        )
+        vm.setStateForTest(p1Turn)
+        vm.drawCard()
+        assertEquals(TurnPhase.MOVING, vm.uiState.value.phase)
+        // P1 moves e2 pawn (6,4) to (5,4) where trap is armed!
+        vm.onSquareTapped(Square(6, 4))
+        vm.onSquareTapped(Square(5, 4))
+
+        // Pawn stepped on trap: destroyed!
+        assertNull(vm.uiState.value.board[5][4])
+        assertNull(vm.uiState.value.board[6][4])
+        assertEquals(0, vm.uiState.value.traps.size)
+        // Turn ended immediately
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+        assertEquals(PlayerId.PLAYER_2, vm.uiState.value.activePlayer)
+    }
+
+    @Test
+    fun `draw two card lets player pick 1 of 2 drawn cards`() {
+        val vm = UnoChessViewModel(Random(1)) {
+            listOf(
+                UnoCard(1, UnoColor.RED, UnoCardType.DrawTwo),
+                UnoCard(2, UnoColor.BLUE, UnoCardType.NumberCard(2)),
+                UnoCard(3, UnoColor.GREEN, UnoCardType.Freeze)
+            )
+        }
+        vm.drawCard()
+        assertEquals(TurnPhase.DRAW_TWO_CHOOSING, vm.uiState.value.phase)
+        assertNotNull(vm.uiState.value.drawTwoPendingCards)
+        val (c1, c2) = vm.uiState.value.drawTwoPendingCards!!
+        assertEquals(UnoCardType.NumberCard(2), c1.type)
+        assertEquals(UnoCardType.Freeze, c2.type)
+
+        // Pick card 0 (NumberCard 2)
+        vm.onChooseDrawTwo(0)
+        assertEquals(TurnPhase.MOVING, vm.uiState.value.phase)
+        assertEquals(2, vm.uiState.value.movesRemaining)
+        // Unchosen card (Freeze) is in discard
+        assertTrue(vm.uiState.value.discardPile.any { it.type == UnoCardType.Freeze })
     }
 }

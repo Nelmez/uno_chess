@@ -1303,4 +1303,105 @@ object ChessEngine {
         val promoSuffix = move.promotion?.let { "=${it.notation}" }.orEmpty()
         return "$prefix${move.from.toAlgebraic()}$captureMark${move.to.toAlgebraic()}$promoSuffix"
     }
+
+    fun getValidSniperTargets(
+        board: List<List<ChessPiece?>>,
+        sourceSquare: Square,
+        targetColor: PieceColor,
+        protectedPieceIds: Set<Int>
+    ): List<Square> {
+        val piece = board[sourceSquare.row][sourceSquare.col] ?: return emptyList()
+        val ownColor = piece.color
+
+        val candidateTargets = mutableListOf<Square>()
+        val moves = getLegalMovesForSquare(
+            board = board,
+            from = sourceSquare,
+            castlingRights = CastlingRights(false, false, false, false),
+            enPassantTarget = null,
+            enPassantOwner = null,
+            excludedPieceIds = emptySet(),
+            protectedPieceIds = protectedPieceIds
+        )
+
+        for (m in moves) {
+            val destPiece = board[m.to.row][m.to.col] ?: continue
+            if (destPiece.color != targetColor) continue
+            if (destPiece.type == PieceType.KING) continue
+            if (destPiece.id in protectedPieceIds) continue
+
+            val boardAfter = removePiece(board, m.to)
+            if (!isKingInCheck(boardAfter, ownColor)) {
+                candidateTargets.add(m.to)
+            }
+        }
+        return candidateTargets
+    }
+
+    fun getValidSniperSources(
+        board: List<List<ChessPiece?>>,
+        color: PieceColor,
+        protectedPieceIds: Set<Int>
+    ): List<Square> {
+        val oppColor = color.opponent()
+        val sources = mutableListOf<Square>()
+        for (r in 0..7) {
+            for (c in 0..7) {
+                val p = board[r][c] ?: continue
+                if (p.color != color) continue
+                val targets = getValidSniperTargets(board, Square(r, c), oppColor, protectedPieceIds)
+                if (targets.isNotEmpty()) {
+                    sources.add(Square(r, c))
+                }
+            }
+        }
+        return sources
+    }
+
+    fun getValidPortalSources(
+        board: List<List<ChessPiece?>>,
+        color: PieceColor
+    ): List<Square> {
+        return getOwnNonKingSquares(board, color).toList()
+    }
+
+    fun getValidPortalDestinations(
+        board: List<List<ChessPiece?>>,
+        color: PieceColor,
+        sourceSquare: Square
+    ): List<Square> {
+        val piece = board[sourceSquare.row][sourceSquare.col] ?: return emptyList()
+        if (piece.color != color || piece.type == PieceType.KING) return emptyList()
+
+        val destinations = mutableListOf<Square>()
+        val withoutPiece = removePiece(board, sourceSquare)
+
+        for (r in 0..7) {
+            for (c in 0..7) {
+                if (board[r][c] != null) continue
+                val dest = Square(r, c)
+                val simulated = placePiece(withoutPiece, dest, piece)
+                if (!isKingInCheck(simulated, color)) {
+                    destinations.add(dest)
+                }
+            }
+        }
+        return destinations
+    }
+
+    fun getValidTrapSquares(
+        board: List<List<ChessPiece?>>,
+        traps: List<Square>
+    ): List<Square> {
+        val valid = mutableListOf<Square>()
+        for (r in 0..7) {
+            for (c in 0..7) {
+                if (board[r][c] != null) continue
+                val sq = Square(r, c)
+                if (sq in traps) continue
+                valid.add(sq)
+            }
+        }
+        return valid
+    }
 }

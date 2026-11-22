@@ -32,7 +32,12 @@ enum class SoundEffect(
     SPECIAL_SWAP("sfx_special_swap.wav", volume = 0.88f),
     SPECIAL_CLONE("sfx_special_clone.wav", volume = 0.88f),
     SPECIAL_WILD("sfx_special_wild.wav", volume = 0.95f),
-    SPECIAL_SUICIDE("sfx_special_suicide.wav", volume = 0.92f)
+    SPECIAL_SUICIDE("sfx_special_suicide.wav", volume = 0.92f),
+    SPECIAL_SNIPER("sfx_special_sniper.wav", volume = 0.95f),
+    SPECIAL_PORTAL("sfx_special_portal.wav", volume = 0.90f),
+    SPECIAL_TRAP_ARM("sfx_special_trap_arm.wav", volume = 0.88f),
+    SPECIAL_TRAP_TRIGGER("sfx_special_trap_trigger.wav", volume = 0.95f),
+    SPECIAL_DRAW_TWO("sfx_special_draw_two.wav", volume = 0.85f)
 }
 
 /**
@@ -66,6 +71,10 @@ object SoundEventDetector {
         UnoCardType.SwapPositions -> SoundEffect.SPECIAL_SWAP
         UnoCardType.Clone -> SoundEffect.SPECIAL_CLONE
         UnoCardType.Wild -> SoundEffect.SPECIAL_WILD
+        UnoCardType.Sniper -> SoundEffect.SPECIAL_SNIPER
+        UnoCardType.Portal -> SoundEffect.SPECIAL_PORTAL
+        UnoCardType.TrapCard -> SoundEffect.SPECIAL_TRAP_ARM
+        UnoCardType.DrawTwo -> SoundEffect.SPECIAL_DRAW_TWO
     }
 
     fun detect(prev: GameUiState, next: GameUiState): List<SoundEffect> {
@@ -104,6 +113,9 @@ object SoundEventDetector {
                 TurnPhase.PROMOTING_PAWN -> effects += SoundEffect.SPECIAL_PROMOTE
                 TurnPhase.SWAPPING -> effects += SoundEffect.SPECIAL_SWAP
                 TurnPhase.CLONING -> effects += SoundEffect.SPECIAL_CLONE
+                TurnPhase.SNIPING -> effects += SoundEffect.SPECIAL_SNIPER
+                TurnPhase.PORTALING -> effects += SoundEffect.SPECIAL_PORTAL
+                TurnPhase.TRAPPING -> effects += SoundEffect.SPECIAL_TRAP_ARM
                 else -> Unit
             }
         }
@@ -152,6 +164,14 @@ object SoundEventDetector {
 
         if (prev.phase == TurnPhase.SUICIDING && next.phase != TurnPhase.SUICIDING && next.outcome == null) {
             effects += SoundEffect.SPECIAL_SUICIDE
+        }
+
+        if (next.traps.size > prev.traps.size && !drewCard) {
+            effects += SoundEffect.SPECIAL_TRAP_ARM
+        }
+
+        if (next.traps.size < prev.traps.size) {
+            effects += SoundEffect.SPECIAL_TRAP_TRIGGER
         }
 
         // 5. Match-ending outcomes or Check alert

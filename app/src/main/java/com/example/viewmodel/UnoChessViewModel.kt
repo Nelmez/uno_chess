@@ -30,6 +30,7 @@ import com.example.model.PlayerId
 import com.example.model.ReviveAnimationEvent
 import com.example.model.SpecialCardKey
 import com.example.model.Square
+import com.example.model.Trap
 import com.example.model.TurnPhase
 import com.example.model.UnoCard
 import com.example.model.UnoCardTheme
@@ -505,6 +506,44 @@ class UnoChessViewModel(
                     true
                 }
 
+                TurnPhase.SNIPING -> {
+                    val decision = UnoChessAi.chooseSniperAction(current, difficulty, random)
+                    if (decision != null) {
+                        handleSniperSquareTap(_uiState.value, decision.sniperSquare)
+                        handleSniperSquareTap(_uiState.value, decision.targetSquare)
+                    } else {
+                        performSkipSniper()
+                    }
+                    true
+                }
+
+                TurnPhase.PORTALING -> {
+                    val decision = UnoChessAi.choosePortalAction(current, difficulty, random)
+                    if (decision != null) {
+                        handlePortalSquareTap(_uiState.value, decision.sourceSquare)
+                        handlePortalSquareTap(_uiState.value, decision.destSquare)
+                    } else {
+                        performSkipPortal()
+                    }
+                    true
+                }
+
+                TurnPhase.TRAPPING -> {
+                    val sq = UnoChessAi.chooseTrapSquare(current, difficulty, random)
+                    if (sq != null) {
+                        handleTrapSquareTap(_uiState.value, sq)
+                    } else {
+                        performSkipTrap()
+                    }
+                    true
+                }
+
+                TurnPhase.DRAW_TWO_CHOOSING -> {
+                    val choice = UnoChessAi.chooseDrawTwoCard(current, difficulty, random)
+                    performChooseDrawTwoCard(choice)
+                    true
+                }
+
                 TurnPhase.MOVING -> {
                     val chosen = UnoChessAi.chooseMove(current, difficulty, random)
                         ?: return false
@@ -624,6 +663,22 @@ class UnoChessViewModel(
                     }
                     is LanAction.SelectWildEffect -> if (active == PlayerId.PLAYER_2) {
                         performSelectWildEffect(action.effect)
+                        broadcastStateIfHost()
+                    }
+                    is LanAction.ChooseDrawTwo -> if (active == PlayerId.PLAYER_2) {
+                        performChooseDrawTwoCard(action.index)
+                        broadcastStateIfHost()
+                    }
+                    LanAction.SkipSniper -> if (active == PlayerId.PLAYER_2) {
+                        performSkipSniper()
+                        broadcastStateIfHost()
+                    }
+                    LanAction.SkipPortal -> if (active == PlayerId.PLAYER_2) {
+                        performSkipPortal()
+                        broadcastStateIfHost()
+                    }
+                    LanAction.SkipTrap -> if (active == PlayerId.PLAYER_2) {
+                        performSkipTrap()
                         broadcastStateIfHost()
                     }
                 }
@@ -861,7 +916,7 @@ class UnoChessViewModel(
         scheduleAiTurnIfNeeded()
     }
 
-    private fun performDrawCard() {
+    private fun performDrawCard(forcedCard: UnoCard? = null) {
         val current = _uiState.value
         if (current.phase != TurnPhase.AWAITING_DRAW || current.outcome != null) return
 
@@ -963,7 +1018,9 @@ class UnoChessViewModel(
             return
         }
 
-        turnsPlayedInMatch++
+        if (forcedCard == null) {
+            turnsPlayedInMatch++
+        }
 
         val playerPity = current.movePityCount[activePlayer] ?: 0
 
@@ -979,7 +1036,7 @@ class UnoChessViewModel(
 
         while (safetyCounter < 64) {
             safetyCounter++
-            if (drawPile.isEmpty()) {
+            if (forcedCard == null && drawPile.isEmpty()) {
                 if (discardPile.isEmpty()) {
                     drawPile = UnoDeck.createShuffledDeck(random, current.enabledSpecialCards).toMutableList()
                 } else {
@@ -989,7 +1046,7 @@ class UnoChessViewModel(
                 logs = prependLog(logs, "UNO deck reshuffled.", LogCategory.SYSTEM)
             }
 
-            val drawn = UnoDeck.drawCardWithPity(
+            val drawn = forcedCard ?: UnoDeck.drawCardWithPity(
                 drawPile = drawPile,
                 discardPile = discardPile,
                 pityCount = playerPity,
@@ -998,7 +1055,7 @@ class UnoChessViewModel(
             )
 
             // Edge case 1: Starting a turn in check — discard action cards and redraw until Number card
-            if (inCheckAtStart && drawn.type !is UnoCardType.NumberCard) {
+            if (forcedCard == null && inCheckAtStart && drawn.type !is UnoCardType.NumberCard) {
                 discardPile.add(drawn)
                 val cardName = drawn.type.title()
                 logs = prependLog(
@@ -1880,6 +1937,207 @@ class UnoChessViewModel(
                     )
                     return
                 }
+
+                UnoCardType.Sniper -> {
+                    val sources = ChessEngine.getValidSniperSources(current.board, activeColor, protectedEnemyIds)
+                    if (sources.isEmpty()) {
+                        discardPile.add(drawn)
+                        logs = prependLog(logs, "$activeLabel drew Sniper — no enemy pieces in attack range. Redrawing!", LogCategory.SNIPER)
+                        notice = NoticeBanner(id = nextNoticeId++, message = "No enemy pieces in sniper range — drew another card!", isAlert = false)
+                        continue
+                    }
+                    logs = prependLog(logs, "$activeLabel (${activeColor.displayName}) drew Sniper — take aim at an enemy piece.", LogCategory.SNIPER)
+                    _uiState.value = current.copy(
+                        phase = TurnPhase.SNIPING,
+                        drawPile = drawPile.toList(),
+                        discardPile = discardPile.toList(),
+                        activeCard = drawn,
+                        drawRevision = current.drawRevision + 1,
+                        totalMovesForCard = 0,
+                        movesRemaining = 0,
+                        revivesTotalForCard = 0,
+                        revivesRemaining = 0,
+                        majorRevivedThisTurn = false,
+                        movedPieceIdsThisTurn = emptySet(),
+                        frozenPieceId = workingFrozenId,
+                        frozenOwner = workingFrozenOwner,
+                        validFreezeSquares = emptySet(),
+                        selectedSniperSourceSquare = null,
+                        validSniperSourceSquares = sources.toSet(),
+                        validSniperTargetSquares = emptySet(),
+                        selectedPortalSourceSquare = null,
+                        validPortalSourceSquares = emptySet(),
+                        validPortalDestinationSquares = emptySet(),
+                        validTrapSquares = emptySet(),
+                        drawTwoPendingCards = null,
+                        selectedMergeSquares = emptyList(),
+                        selectedSacrificeSquare = null,
+                        validSacrificeSquares = emptySet(),
+                        selectedPromotePawnSquare = null,
+                        validPromotePawnSquares = emptySet(),
+                        validSuicideSquares = emptySet(),
+                        selectedSquare = null,
+                        legalMovesForSelected = emptyList(),
+                        selectedRevivePieceId = null,
+                        validReviveSquares = emptySet(),
+                        noticeBanner = notice ?: NoticeBanner(id = nextNoticeId++, message = "Sniper! Tap 1 of your highlighted pieces to take aim.", isAlert = false),
+                        gameLog = logs,
+                        movePityCount = nextPityMap
+                    )
+                    return
+                }
+
+                UnoCardType.Portal -> {
+                    val sources = ChessEngine.getValidPortalSources(current.board, activeColor)
+                    if (sources.isEmpty()) {
+                        discardPile.add(drawn)
+                        logs = prependLog(logs, "$activeLabel drew Portal — only King remains. Redrawing!", LogCategory.PORTAL)
+                        notice = NoticeBanner(id = nextNoticeId++, message = "No non-King piece for Portal — drew another card!", isAlert = false)
+                        continue
+                    }
+                    logs = prependLog(logs, "$activeLabel (${activeColor.displayName}) drew Portal — teleport 1 piece to any safe empty square.", LogCategory.PORTAL)
+                    _uiState.value = current.copy(
+                        phase = TurnPhase.PORTALING,
+                        drawPile = drawPile.toList(),
+                        discardPile = discardPile.toList(),
+                        activeCard = drawn,
+                        drawRevision = current.drawRevision + 1,
+                        totalMovesForCard = 0,
+                        movesRemaining = 0,
+                        revivesTotalForCard = 0,
+                        revivesRemaining = 0,
+                        majorRevivedThisTurn = false,
+                        movedPieceIdsThisTurn = emptySet(),
+                        frozenPieceId = workingFrozenId,
+                        frozenOwner = workingFrozenOwner,
+                        validFreezeSquares = emptySet(),
+                        selectedSniperSourceSquare = null,
+                        validSniperSourceSquares = emptySet(),
+                        validSniperTargetSquares = emptySet(),
+                        selectedPortalSourceSquare = null,
+                        validPortalSourceSquares = sources.toSet(),
+                        validPortalDestinationSquares = emptySet(),
+                        validTrapSquares = emptySet(),
+                        drawTwoPendingCards = null,
+                        selectedMergeSquares = emptyList(),
+                        selectedSacrificeSquare = null,
+                        validSacrificeSquares = emptySet(),
+                        selectedPromotePawnSquare = null,
+                        validPromotePawnSquares = emptySet(),
+                        validSuicideSquares = emptySet(),
+                        selectedSquare = null,
+                        legalMovesForSelected = emptyList(),
+                        selectedRevivePieceId = null,
+                        validReviveSquares = emptySet(),
+                        noticeBanner = notice ?: NoticeBanner(id = nextNoticeId++, message = "Portal! Tap 1 of your non-King pieces, then tap an empty square.", isAlert = false),
+                        gameLog = logs,
+                        movePityCount = nextPityMap
+                    )
+                    return
+                }
+
+                UnoCardType.TrapCard -> {
+                    val validTraps = ChessEngine.getValidTrapSquares(current.board, current.traps.map { it.square })
+                    if (validTraps.isEmpty()) {
+                        discardPile.add(drawn)
+                        logs = prependLog(logs, "$activeLabel drew Trap — no empty square available. Redrawing!", LogCategory.TRAP)
+                        notice = NoticeBanner(id = nextNoticeId++, message = "No empty square for Trap — drew another card!", isAlert = false)
+                        continue
+                    }
+                    logs = prependLog(logs, "$activeLabel (${activeColor.displayName}) drew Trap — arm a hidden landmine on an empty square.", LogCategory.TRAP)
+                    _uiState.value = current.copy(
+                        phase = TurnPhase.TRAPPING,
+                        drawPile = drawPile.toList(),
+                        discardPile = discardPile.toList(),
+                        activeCard = drawn,
+                        drawRevision = current.drawRevision + 1,
+                        totalMovesForCard = 0,
+                        movesRemaining = 0,
+                        revivesTotalForCard = 0,
+                        revivesRemaining = 0,
+                        majorRevivedThisTurn = false,
+                        movedPieceIdsThisTurn = emptySet(),
+                        frozenPieceId = workingFrozenId,
+                        frozenOwner = workingFrozenOwner,
+                        validFreezeSquares = emptySet(),
+                        selectedSniperSourceSquare = null,
+                        validSniperSourceSquares = emptySet(),
+                        validSniperTargetSquares = emptySet(),
+                        selectedPortalSourceSquare = null,
+                        validPortalSourceSquares = emptySet(),
+                        validPortalDestinationSquares = emptySet(),
+                        validTrapSquares = validTraps.toSet(),
+                        drawTwoPendingCards = null,
+                        selectedMergeSquares = emptyList(),
+                        selectedSacrificeSquare = null,
+                        validSacrificeSquares = emptySet(),
+                        selectedPromotePawnSquare = null,
+                        validPromotePawnSquares = emptySet(),
+                        validSuicideSquares = emptySet(),
+                        selectedSquare = null,
+                        legalMovesForSelected = emptyList(),
+                        selectedRevivePieceId = null,
+                        validReviveSquares = emptySet(),
+                        noticeBanner = notice ?: NoticeBanner(id = nextNoticeId++, message = "Trap! Tap any empty square to arm a hidden landmine.", isAlert = false),
+                        gameLog = logs,
+                        movePityCount = nextPityMap
+                    )
+                    return
+                }
+
+                UnoCardType.DrawTwo -> {
+                    if (drawPile.size < 2) {
+                        drawPile.addAll(discardPile.shuffled(random))
+                        discardPile.clear()
+                    }
+                    if (drawPile.size < 2) {
+                        discardPile.add(drawn)
+                        logs = prependLog(logs, "$activeLabel drew Draw Two — not enough cards in deck. Redrawing!", LogCategory.DRAW_TWO)
+                        notice = NoticeBanner(id = nextNoticeId++, message = "Not enough cards for Draw Two — drew another card!", isAlert = false)
+                        continue
+                    }
+                    val card1 = drawPile.removeAt(0)
+                    val card2 = drawPile.removeAt(0)
+                    logs = prependLog(logs, "$activeLabel (${activeColor.displayName}) drew Draw Two — pick 1 of 2 cards to play!", LogCategory.DRAW_TWO)
+                    _uiState.value = current.copy(
+                        phase = TurnPhase.DRAW_TWO_CHOOSING,
+                        drawPile = drawPile.toList(),
+                        discardPile = discardPile.toList(),
+                        activeCard = drawn,
+                        drawRevision = current.drawRevision + 1,
+                        totalMovesForCard = 0,
+                        movesRemaining = 0,
+                        revivesTotalForCard = 0,
+                        revivesRemaining = 0,
+                        majorRevivedThisTurn = false,
+                        movedPieceIdsThisTurn = emptySet(),
+                        frozenPieceId = workingFrozenId,
+                        frozenOwner = workingFrozenOwner,
+                        validFreezeSquares = emptySet(),
+                        selectedSniperSourceSquare = null,
+                        validSniperSourceSquares = emptySet(),
+                        validSniperTargetSquares = emptySet(),
+                        selectedPortalSourceSquare = null,
+                        validPortalSourceSquares = emptySet(),
+                        validPortalDestinationSquares = emptySet(),
+                        validTrapSquares = emptySet(),
+                        drawTwoPendingCards = Pair(card1, card2),
+                        selectedMergeSquares = emptyList(),
+                        selectedSacrificeSquare = null,
+                        validSacrificeSquares = emptySet(),
+                        selectedPromotePawnSquare = null,
+                        validPromotePawnSquares = emptySet(),
+                        validSuicideSquares = emptySet(),
+                        selectedSquare = null,
+                        legalMovesForSelected = emptyList(),
+                        selectedRevivePieceId = null,
+                        validReviveSquares = emptySet(),
+                        noticeBanner = notice ?: NoticeBanner(id = nextNoticeId++, message = "Draw Two! Pick 1 of the 2 cards below to play this turn.", isAlert = false),
+                        gameLog = logs,
+                        movePityCount = nextPityMap
+                    )
+                    return
+                }
             }
         }
     }
@@ -1914,6 +2172,18 @@ class UnoChessViewModel(
             TurnPhase.SHIELDING -> handleShieldingSquareTap(current, square)
             TurnPhase.SWAPPING -> handleSwappingSquareTap(current, square)
             TurnPhase.CLONING -> handleCloningSquareTap(current, square)
+            TurnPhase.SNIPING -> handleSniperSquareTap(current, square)
+            TurnPhase.PORTALING -> handlePortalSquareTap(current, square)
+            TurnPhase.TRAPPING -> handleTrapSquareTap(current, square)
+            TurnPhase.DRAW_TWO_CHOOSING -> {
+                _uiState.value = current.copy(
+                    noticeBanner = NoticeBanner(
+                        id = nextNoticeId++,
+                        message = "Draw Two! Pick 1 of the 2 cards shown below.",
+                        isAlert = false
+                    )
+                )
+            }
             TurnPhase.WILD_CHOOSING -> {
                 _uiState.value = current.copy(
                     noticeBanner = NoticeBanner(
@@ -3191,6 +3461,65 @@ class UnoChessViewModel(
         )
         val opponentProtectedIds = protectedPieceIdsForOwner(nextTurnShieldId, nextTurnShieldOwner, activeColor)
 
+        val steppedTrap = current.traps.firstOrNull { it.square == move.to }
+        if (steppedTrap != null) {
+            val updatedTraps = current.traps - steppedTrap
+            val trapBoard = ChessEngine.removePiece(result.board, move.to)
+            val updatedCaptured = current.capturedPieces.toMutableMap()
+            val list = updatedCaptured[animatedPiece.color].orEmpty() + animatedPiece
+            updatedCaptured[animatedPiece.color] = list.sortedByDescending { it.type.materialValue }
+
+            val trapMsg = "💣 Trap triggered on ${move.to.toAlgebraic().uppercase()}! $activeLabel's ${animatedPiece.type.displayName} was destroyed!"
+            var trapLogs = prependLog(current.gameLog, "$activeLabel (${activeColor.displayName}): ${result.notation}", LogCategory.MOVE)
+            trapLogs = prependLog(trapLogs, trapMsg, LogCategory.TRAP)
+
+            val oppInCheck = ChessEngine.isKingInCheck(trapBoard, opponentColor)
+            val oppHasMove = ChessEngine.hasAnyLegalMove(
+                board = trapBoard,
+                color = opponentColor,
+                castlingRights = result.castlingRights,
+                enPassantTarget = null,
+                enPassantOwner = null,
+                protectedPieceIds = opponentProtectedIds
+            )
+            val outcome = if (!oppHasMove) {
+                if (oppInCheck) GameOutcome.Checkmate(activePlayer, activeColor) else GameOutcome.Stalemate
+            } else null
+
+            if (outcome != null) {
+                val endMsg = if (outcome is GameOutcome.Checkmate) "Checkmate! $activeLabel wins!" else "Stalemate! Match drawn."
+                trapLogs = prependLog(trapLogs, endMsg, LogCategory.GAME_OVER)
+                recordMatchOutcomeIfNeeded(outcome)
+            }
+
+            _uiState.value = current.copy(
+                board = trapBoard,
+                phase = if (outcome != null) TurnPhase.GAME_OVER else TurnPhase.AWAITING_DRAW,
+                activePlayer = if (outcome != null) activePlayer else opponentPlayer,
+                boardFlipped = if (outcome == null && snapshotSession().role == NetworkRole.PASS_AND_PLAY && _opponentMode.value is OpponentMode.PassAndPlay) !current.boardFlipped else current.boardFlipped,
+                movesRemaining = 0,
+                movedPieceIdsThisTurn = emptySet(),
+                frozenPieceId = nextTurnFrozenId,
+                frozenOwner = nextTurnFrozenOwner,
+                shieldedPieceId = nextTurnShieldId,
+                shieldedOwner = nextTurnShieldOwner,
+                traps = updatedTraps,
+                selectedSquare = null,
+                legalMovesForSelected = emptyList(),
+                capturedPieces = updatedCaptured,
+                lastMoveFrom = move.from,
+                lastMoveTo = move.to,
+                lastRevivedSquare = null,
+                checkedKingSquare = if (oppInCheck) ChessEngine.findKing(trapBoard, opponentColor) else null,
+                noticeBanner = NoticeBanner(id = nextNoticeId++, message = trapMsg, isAlert = true),
+                gameLog = trapLogs,
+                outcome = outcome,
+                moveAnimationEvent = moveAnim,
+                movePityCount = current.movePityCount + (activePlayer to 0)
+            )
+            return
+        }
+
         val remainingAfterMove = (current.movesRemaining - 1).coerceAtLeast(0)
         val opponentInCheck = ChessEngine.isKingInCheck(result.board, opponentColor)
         val opponentHasLegalMove = ChessEngine.hasAnyLegalMove(
@@ -4189,7 +4518,10 @@ class UnoChessViewModel(
             SpecialCardKey.PROMOTE,
             SpecialCardKey.HIJACK,
             SpecialCardKey.MERGE,
-            SpecialCardKey.SACRIFICE
+            SpecialCardKey.SACRIFICE,
+            SpecialCardKey.SNIPER,
+            SpecialCardKey.PORTAL,
+            SpecialCardKey.TRAP
         ).filter { it in state.enabledSpecialCards }
 
         return candidates.filter { key ->
@@ -4228,7 +4560,15 @@ class UnoChessViewModel(
                     ChessEngine.hasAnyValidTrade(state.board, activeColor, freezeExcluded)
                 SpecialCardKey.SACRIFICE ->
                     ChessEngine.getValidSacrificeSquares(state.board, activeColor, freezeExcluded).isNotEmpty()
-                SpecialCardKey.SUICIDE, SpecialCardKey.WILD -> false
+                SpecialCardKey.SNIPER -> {
+                    val oppProtected = protectedPieceIdsForOwner(state.shieldedPieceId, state.shieldedOwner, opponentColor)
+                    ChessEngine.getValidSniperSources(state.board, activeColor, oppProtected).isNotEmpty()
+                }
+                SpecialCardKey.PORTAL ->
+                    ChessEngine.getValidPortalSources(state.board, activeColor).isNotEmpty()
+                SpecialCardKey.TRAP ->
+                    ChessEngine.getValidTrapSquares(state.board, state.traps.map { it.square }).isNotEmpty()
+                SpecialCardKey.DRAW_TWO, SpecialCardKey.SUICIDE, SpecialCardKey.WILD -> false
             }
         }
     }
@@ -4443,8 +4783,586 @@ class UnoChessViewModel(
                 )
             }
 
-            SpecialCardKey.SUICIDE, SpecialCardKey.WILD -> Unit
+            SpecialCardKey.SNIPER -> {
+                val oppProtected = protectedPieceIdsForOwner(current.shieldedPieceId, current.shieldedOwner, opponentColor)
+                val sources = ChessEngine.getValidSniperSources(current.board, activeColor, oppProtected)
+                _uiState.value = current.copy(
+                    phase = TurnPhase.SNIPING,
+                    validSniperSourceSquares = sources.toSet(),
+                    selectedSniperSourceSquare = null,
+                    validSniperTargetSquares = emptySet(),
+                    availableWildEffects = emptyList(),
+                    noticeBanner = NoticeBanner(
+                        id = nextNoticeId++,
+                        message = "Wild → Sniper! Tap 1 of your highlighted pieces to take aim.",
+                        isAlert = false
+                    ),
+                    gameLog = logs
+                )
+            }
+
+            SpecialCardKey.PORTAL -> {
+                val sources = ChessEngine.getValidPortalSources(current.board, activeColor)
+                _uiState.value = current.copy(
+                    phase = TurnPhase.PORTALING,
+                    validPortalSourceSquares = sources.toSet(),
+                    selectedPortalSourceSquare = null,
+                    validPortalDestinationSquares = emptySet(),
+                    availableWildEffects = emptyList(),
+                    noticeBanner = NoticeBanner(
+                        id = nextNoticeId++,
+                        message = "Wild → Portal! Tap 1 of your non-King pieces to teleport.",
+                        isAlert = false
+                    ),
+                    gameLog = logs
+                )
+            }
+
+            SpecialCardKey.TRAP -> {
+                val valids = ChessEngine.getValidTrapSquares(current.board, current.traps.map { it.square })
+                _uiState.value = current.copy(
+                    phase = TurnPhase.TRAPPING,
+                    validTrapSquares = valids.toSet(),
+                    availableWildEffects = emptyList(),
+                    noticeBanner = NoticeBanner(
+                        id = nextNoticeId++,
+                        message = "Wild → Trap! Tap any empty square to arm a landmine.",
+                        isAlert = false
+                    ),
+                    gameLog = logs
+                )
+            }
+
+            SpecialCardKey.DRAW_TWO, SpecialCardKey.SUICIDE, SpecialCardKey.WILD -> Unit
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Sniper Action
+    // -------------------------------------------------------------------------
+
+    private fun handleSniperSquareTap(current: GameUiState, square: Square) {
+        val activeColor = current.activeColor
+        val activeLabel = actorName(current.activePlayer)
+        val opponentPlayer = current.activePlayer.opponent()
+        val opponentColor = activeColor.opponent()
+        val oppProtected = protectedPieceIdsForOwner(current.shieldedPieceId, current.shieldedOwner, opponentColor)
+
+        val selectedSource = current.selectedSniperSourceSquare
+        if (selectedSource == null) {
+            if (square !in current.validSniperSourceSquares) return
+            val targets = ChessEngine.getValidSniperTargets(current.board, square, opponentColor, oppProtected)
+            _uiState.value = current.copy(
+                selectedSniperSourceSquare = square,
+                validSniperTargetSquares = targets.toSet(),
+                noticeBanner = NoticeBanner(
+                    id = nextNoticeId++,
+                    message = "Sniper locked! Tap a highlighted enemy piece to eliminate it.",
+                    isAlert = false
+                )
+            )
+            return
+        }
+
+        if (selectedSource == square) {
+            _uiState.value = current.copy(
+                selectedSniperSourceSquare = null,
+                validSniperTargetSquares = emptySet(),
+                noticeBanner = null
+            )
+            return
+        }
+
+        if (square in current.validSniperSourceSquares) {
+            val targets = ChessEngine.getValidSniperTargets(current.board, square, opponentColor, oppProtected)
+            _uiState.value = current.copy(
+                selectedSniperSourceSquare = square,
+                validSniperTargetSquares = targets.toSet()
+            )
+            return
+        }
+
+        if (square !in current.validSniperTargetSquares) return
+
+        val sniperPiece = current.board[selectedSource.row][selectedSource.col] ?: return
+        val targetPiece = current.board[square.row][square.col] ?: return
+
+        val newBoard = ChessEngine.removePiece(current.board, square)
+        val updatedCaptured = current.capturedPieces + (targetPiece.color to (current.capturedPieces[targetPiece.color].orEmpty() + targetPiece))
+
+        val summary = "$activeLabel's ${sniperPiece.type.displayName} sniped ${targetPiece.color.displayName} ${targetPiece.type.displayName} on ${square.toAlgebraic().uppercase()}!"
+        var logs = prependLog(current.gameLog, summary, LogCategory.SNIPER)
+
+        val (nextTurnShieldId, nextTurnShieldOwner) = nextTurnShield(
+            currentShieldId = current.shieldedPieceId,
+            currentShieldOwner = current.shieldedOwner,
+            endingTurnColor = activeColor,
+            removedPieceIds = setOf(targetPiece.id)
+        )
+        val opponentProtectedIds = protectedPieceIdsForOwner(nextTurnShieldId, nextTurnShieldOwner, activeColor)
+
+        val opponentInCheck = ChessEngine.isKingInCheck(newBoard, opponentColor)
+        val opponentHasLegalMove = ChessEngine.hasAnyLegalMove(
+            board = newBoard,
+            color = opponentColor,
+            castlingRights = current.castlingRights,
+            enPassantTarget = null,
+            enPassantOwner = null,
+            protectedPieceIds = opponentProtectedIds
+        )
+
+        if (!opponentHasLegalMove) {
+            val outcome = if (opponentInCheck) {
+                GameOutcome.Checkmate(winnerPlayer = current.activePlayer, winnerColor = activeColor)
+            } else {
+                GameOutcome.Stalemate
+            }
+            val endMessage = when (outcome) {
+                is GameOutcome.Checkmate -> "Checkmate! $activeLabel (${activeColor.displayName}) wins!"
+                else -> "Stalemate! ${actorName(opponentPlayer)} (${opponentColor.displayName}) has no legal moves."
+            }
+            logs = prependLog(logs, endMessage, LogCategory.GAME_OVER)
+            _uiState.value = current.copy(
+                board = newBoard,
+                phase = TurnPhase.GAME_OVER,
+                selectedSniperSourceSquare = null,
+                validSniperSourceSquares = emptySet(),
+                validSniperTargetSquares = emptySet(),
+                frozenPieceId = null,
+                frozenOwner = null,
+                shieldedPieceId = null,
+                shieldedOwner = null,
+                capturedPieces = updatedCaptured,
+                noticeBanner = NoticeBanner(id = nextNoticeId++, message = endMessage, isAlert = false),
+                gameLog = logs,
+                outcome = outcome
+            )
+            recordMatchOutcomeIfNeeded(outcome)
+            return
+        }
+
+        val nextTurnFrozenId = if (current.frozenOwner == activeColor) null else current.frozenPieceId
+        val nextTurnFrozenOwner = if (current.frozenOwner == activeColor) null else current.frozenOwner
+
+        _uiState.value = current.copy(
+            board = newBoard,
+            activePlayer = opponentPlayer,
+            phase = TurnPhase.AWAITING_DRAW,
+            selectedSniperSourceSquare = null,
+            validSniperSourceSquares = emptySet(),
+            validSniperTargetSquares = emptySet(),
+            frozenPieceId = nextTurnFrozenId,
+            frozenOwner = nextTurnFrozenOwner,
+            shieldedPieceId = nextTurnShieldId,
+            shieldedOwner = nextTurnShieldOwner,
+            capturedPieces = updatedCaptured,
+            noticeBanner = NoticeBanner(id = nextNoticeId++, message = summary, isAlert = false),
+            gameLog = logs
+        )
+    }
+
+    fun onSkipSniper() {
+        val lan = snapshotSession()
+        if (!isLocalPlayersTurn()) return
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipSniper))
+            return
+        }
+        synchronized(stateLock) {
+            performSkipSniper()
+            broadcastStateIfHost()
+        }
+        scheduleAiTurnIfNeeded()
+    }
+
+    private fun performSkipSniper() {
+        val current = _uiState.value
+        if (current.phase != TurnPhase.SNIPING || current.outcome != null) return
+        val activePlayer = current.activePlayer
+        val activeColor = current.activeColor
+        val opponentPlayer = activePlayer.opponent()
+        val nextTurnFrozenId = if (current.frozenOwner == activeColor) null else current.frozenPieceId
+        val nextTurnFrozenOwner = if (current.frozenOwner == activeColor) null else current.frozenOwner
+        val (nextTurnShieldId, nextTurnShieldOwner) = nextTurnShield(
+            currentShieldId = current.shieldedPieceId,
+            currentShieldOwner = current.shieldedOwner,
+            endingTurnColor = activeColor
+        )
+        val logs = prependLog(
+            current.gameLog,
+            "${actorName(activePlayer)} skipped Sniper.",
+            LogCategory.SNIPER
+        )
+        _uiState.value = current.copy(
+            activePlayer = opponentPlayer,
+            phase = TurnPhase.AWAITING_DRAW,
+            selectedSniperSourceSquare = null,
+            validSniperSourceSquares = emptySet(),
+            validSniperTargetSquares = emptySet(),
+            frozenPieceId = nextTurnFrozenId,
+            frozenOwner = nextTurnFrozenOwner,
+            shieldedPieceId = nextTurnShieldId,
+            shieldedOwner = nextTurnShieldOwner,
+            noticeBanner = NoticeBanner(id = nextNoticeId++, message = "${actorName(activePlayer)} skipped Sniper.", isAlert = false),
+            gameLog = logs
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Portal Action
+    // -------------------------------------------------------------------------
+
+    private fun handlePortalSquareTap(current: GameUiState, square: Square) {
+        val activeColor = current.activeColor
+        val activeLabel = actorName(current.activePlayer)
+        val opponentPlayer = current.activePlayer.opponent()
+        val opponentColor = activeColor.opponent()
+
+        val selectedSource = current.selectedPortalSourceSquare
+        if (selectedSource == null) {
+            if (square !in current.validPortalSourceSquares) return
+            val destinations = ChessEngine.getValidPortalDestinations(current.board, activeColor, square)
+            _uiState.value = current.copy(
+                selectedPortalSourceSquare = square,
+                validPortalDestinationSquares = destinations.toSet(),
+                noticeBanner = NoticeBanner(
+                    id = nextNoticeId++,
+                    message = "Portal engaged! Tap a highlighted empty square to teleport.",
+                    isAlert = false
+                )
+            )
+            return
+        }
+
+        if (selectedSource == square) {
+            _uiState.value = current.copy(
+                selectedPortalSourceSquare = null,
+                validPortalDestinationSquares = emptySet(),
+                noticeBanner = null
+            )
+            return
+        }
+
+        if (square in current.validPortalSourceSquares) {
+            val destinations = ChessEngine.getValidPortalDestinations(current.board, activeColor, square)
+            _uiState.value = current.copy(
+                selectedPortalSourceSquare = square,
+                validPortalDestinationSquares = destinations.toSet()
+            )
+            return
+        }
+
+        if (square !in current.validPortalDestinationSquares) return
+
+        val piece = current.board[selectedSource.row][selectedSource.col] ?: return
+
+        var newBoard = ChessEngine.removePiece(current.board, selectedSource)
+        val updatedTraps = current.traps.toMutableList()
+        var updatedCaptured = current.capturedPieces
+        var summary = "$activeLabel teleported ${piece.type.displayName} from ${selectedSource.toAlgebraic().uppercase()} to ${square.toAlgebraic().uppercase()}!"
+        val removedIds = mutableSetOf<Int>()
+
+        val trapIndex = updatedTraps.indexOfFirst { it.square == square }
+        val triggeredTrap = if (trapIndex >= 0) updatedTraps.removeAt(trapIndex) else null
+
+        if (triggeredTrap != null) {
+            removedIds.add(piece.id)
+            updatedCaptured = updatedCaptured + (piece.color to (updatedCaptured[piece.color].orEmpty() + piece))
+            summary += " 💣 Trap triggered! The piece was destroyed!"
+        } else {
+            newBoard = ChessEngine.placePiece(newBoard, square, piece)
+        }
+
+        var logs = prependLog(current.gameLog, summary, LogCategory.PORTAL)
+
+        val moveAnim = MoveAnimationEvent(
+            id = nextAnimId++,
+            from = selectedSource,
+            to = square,
+            piece = piece,
+            isCapture = triggeredTrap != null
+        )
+
+        val (nextTurnShieldId, nextTurnShieldOwner) = nextTurnShield(
+            currentShieldId = current.shieldedPieceId,
+            currentShieldOwner = current.shieldedOwner,
+            endingTurnColor = activeColor,
+            removedPieceIds = removedIds
+        )
+        val opponentProtectedIds = protectedPieceIdsForOwner(nextTurnShieldId, nextTurnShieldOwner, activeColor)
+
+        val opponentInCheck = ChessEngine.isKingInCheck(newBoard, opponentColor)
+        val opponentHasLegalMove = ChessEngine.hasAnyLegalMove(
+            board = newBoard,
+            color = opponentColor,
+            castlingRights = current.castlingRights,
+            enPassantTarget = null,
+            enPassantOwner = null,
+            protectedPieceIds = opponentProtectedIds
+        )
+
+        if (!opponentHasLegalMove) {
+            val outcome = if (opponentInCheck) {
+                GameOutcome.Checkmate(winnerPlayer = current.activePlayer, winnerColor = activeColor)
+            } else {
+                GameOutcome.Stalemate
+            }
+            val endMessage = when (outcome) {
+                is GameOutcome.Checkmate -> "Checkmate! $activeLabel (${activeColor.displayName}) wins!"
+                else -> "Stalemate! ${actorName(opponentPlayer)} (${opponentColor.displayName}) has no legal moves."
+            }
+            logs = prependLog(logs, endMessage, LogCategory.GAME_OVER)
+            _uiState.value = current.copy(
+                board = newBoard,
+                phase = TurnPhase.GAME_OVER,
+                selectedPortalSourceSquare = null,
+                validPortalSourceSquares = emptySet(),
+                validPortalDestinationSquares = emptySet(),
+                traps = updatedTraps,
+                frozenPieceId = null,
+                frozenOwner = null,
+                shieldedPieceId = null,
+                shieldedOwner = null,
+                capturedPieces = updatedCaptured,
+                noticeBanner = NoticeBanner(id = nextNoticeId++, message = endMessage, isAlert = false),
+                moveAnimationEvent = moveAnim,
+                gameLog = logs,
+                outcome = outcome
+            )
+            recordMatchOutcomeIfNeeded(outcome)
+            return
+        }
+
+        val nextTurnFrozenId = if (current.frozenOwner == activeColor) null else current.frozenPieceId
+        val nextTurnFrozenOwner = if (current.frozenOwner == activeColor) null else current.frozenOwner
+
+        _uiState.value = current.copy(
+            board = newBoard,
+            activePlayer = opponentPlayer,
+            phase = TurnPhase.AWAITING_DRAW,
+            selectedPortalSourceSquare = null,
+            validPortalSourceSquares = emptySet(),
+            validPortalDestinationSquares = emptySet(),
+            traps = updatedTraps,
+            frozenPieceId = nextTurnFrozenId,
+            frozenOwner = nextTurnFrozenOwner,
+            shieldedPieceId = nextTurnShieldId,
+            shieldedOwner = nextTurnShieldOwner,
+            capturedPieces = updatedCaptured,
+            noticeBanner = NoticeBanner(id = nextNoticeId++, message = summary, isAlert = false),
+            moveAnimationEvent = moveAnim,
+            gameLog = logs
+        )
+    }
+
+    fun onSkipPortal() {
+        val lan = snapshotSession()
+        if (!isLocalPlayersTurn()) return
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipPortal))
+            return
+        }
+        synchronized(stateLock) {
+            performSkipPortal()
+            broadcastStateIfHost()
+        }
+        scheduleAiTurnIfNeeded()
+    }
+
+    private fun performSkipPortal() {
+        val current = _uiState.value
+        if (current.phase != TurnPhase.PORTALING || current.outcome != null) return
+        val activePlayer = current.activePlayer
+        val activeColor = current.activeColor
+        val opponentPlayer = activePlayer.opponent()
+        val nextTurnFrozenId = if (current.frozenOwner == activeColor) null else current.frozenPieceId
+        val nextTurnFrozenOwner = if (current.frozenOwner == activeColor) null else current.frozenOwner
+        val (nextTurnShieldId, nextTurnShieldOwner) = nextTurnShield(
+            currentShieldId = current.shieldedPieceId,
+            currentShieldOwner = current.shieldedOwner,
+            endingTurnColor = activeColor
+        )
+        val logs = prependLog(
+            current.gameLog,
+            "${actorName(activePlayer)} skipped Portal.",
+            LogCategory.PORTAL
+        )
+        _uiState.value = current.copy(
+            activePlayer = opponentPlayer,
+            phase = TurnPhase.AWAITING_DRAW,
+            selectedPortalSourceSquare = null,
+            validPortalSourceSquares = emptySet(),
+            validPortalDestinationSquares = emptySet(),
+            frozenPieceId = nextTurnFrozenId,
+            frozenOwner = nextTurnFrozenOwner,
+            shieldedPieceId = nextTurnShieldId,
+            shieldedOwner = nextTurnShieldOwner,
+            noticeBanner = NoticeBanner(id = nextNoticeId++, message = "${actorName(activePlayer)} skipped Portal.", isAlert = false),
+            gameLog = logs
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Trap Action
+    // -------------------------------------------------------------------------
+
+    private fun handleTrapSquareTap(current: GameUiState, square: Square) {
+        if (square !in current.validTrapSquares) return
+        val activePlayer = current.activePlayer
+        val activeColor = current.activeColor
+        val activeLabel = actorName(activePlayer)
+        val opponentPlayer = activePlayer.opponent()
+        val opponentColor = activeColor.opponent()
+
+        val newTrap = Trap(square = square, placedBy = activePlayer)
+        val updatedTraps = current.traps + newTrap
+        val summary = "$activeLabel armed a hidden trap on ${square.toAlgebraic().uppercase()}!"
+        var logs = prependLog(current.gameLog, summary, LogCategory.TRAP)
+
+        val (nextTurnShieldId, nextTurnShieldOwner) = nextTurnShield(
+            currentShieldId = current.shieldedPieceId,
+            currentShieldOwner = current.shieldedOwner,
+            endingTurnColor = activeColor
+        )
+        val opponentProtectedIds = protectedPieceIdsForOwner(nextTurnShieldId, nextTurnShieldOwner, activeColor)
+
+        val opponentInCheck = ChessEngine.isKingInCheck(current.board, opponentColor)
+        val opponentHasLegalMove = ChessEngine.hasAnyLegalMove(
+            board = current.board,
+            color = opponentColor,
+            castlingRights = current.castlingRights,
+            enPassantTarget = null,
+            enPassantOwner = null,
+            protectedPieceIds = opponentProtectedIds
+        )
+
+        if (!opponentHasLegalMove) {
+            val outcome = if (opponentInCheck) {
+                GameOutcome.Checkmate(winnerPlayer = activePlayer, winnerColor = activeColor)
+            } else {
+                GameOutcome.Stalemate
+            }
+            val endMessage = when (outcome) {
+                is GameOutcome.Checkmate -> "Checkmate! $activeLabel (${activeColor.displayName}) wins!"
+                else -> "Stalemate! ${actorName(opponentPlayer)} (${opponentColor.displayName}) has no legal moves."
+            }
+            logs = prependLog(logs, endMessage, LogCategory.GAME_OVER)
+            _uiState.value = current.copy(
+                phase = TurnPhase.GAME_OVER,
+                validTrapSquares = emptySet(),
+                traps = updatedTraps,
+                frozenPieceId = null,
+                frozenOwner = null,
+                shieldedPieceId = null,
+                shieldedOwner = null,
+                noticeBanner = NoticeBanner(id = nextNoticeId++, message = endMessage, isAlert = false),
+                gameLog = logs,
+                outcome = outcome
+            )
+            recordMatchOutcomeIfNeeded(outcome)
+            return
+        }
+
+        val nextTurnFrozenId = if (current.frozenOwner == activeColor) null else current.frozenPieceId
+        val nextTurnFrozenOwner = if (current.frozenOwner == activeColor) null else current.frozenOwner
+
+        _uiState.value = current.copy(
+            activePlayer = opponentPlayer,
+            phase = TurnPhase.AWAITING_DRAW,
+            validTrapSquares = emptySet(),
+            traps = updatedTraps,
+            frozenPieceId = nextTurnFrozenId,
+            frozenOwner = nextTurnFrozenOwner,
+            shieldedPieceId = nextTurnShieldId,
+            shieldedOwner = nextTurnShieldOwner,
+            noticeBanner = NoticeBanner(id = nextNoticeId++, message = summary, isAlert = false),
+            gameLog = logs
+        )
+    }
+
+    fun onSkipTrap() {
+        val lan = snapshotSession()
+        if (!isLocalPlayersTurn()) return
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.SkipTrap))
+            return
+        }
+        synchronized(stateLock) {
+            performSkipTrap()
+            broadcastStateIfHost()
+        }
+        scheduleAiTurnIfNeeded()
+    }
+
+    private fun performSkipTrap() {
+        val current = _uiState.value
+        if (current.phase != TurnPhase.TRAPPING || current.outcome != null) return
+        val activePlayer = current.activePlayer
+        val activeColor = current.activeColor
+        val opponentPlayer = activePlayer.opponent()
+        val nextTurnFrozenId = if (current.frozenOwner == activeColor) null else current.frozenPieceId
+        val nextTurnFrozenOwner = if (current.frozenOwner == activeColor) null else current.frozenOwner
+        val (nextTurnShieldId, nextTurnShieldOwner) = nextTurnShield(
+            currentShieldId = current.shieldedPieceId,
+            currentShieldOwner = current.shieldedOwner,
+            endingTurnColor = activeColor
+        )
+        val logs = prependLog(
+            current.gameLog,
+            "${actorName(activePlayer)} skipped Trap.",
+            LogCategory.TRAP
+        )
+        _uiState.value = current.copy(
+            activePlayer = opponentPlayer,
+            phase = TurnPhase.AWAITING_DRAW,
+            validTrapSquares = emptySet(),
+            frozenPieceId = nextTurnFrozenId,
+            frozenOwner = nextTurnFrozenOwner,
+            shieldedPieceId = nextTurnShieldId,
+            shieldedOwner = nextTurnShieldOwner,
+            noticeBanner = NoticeBanner(id = nextNoticeId++, message = "${actorName(activePlayer)} skipped Trap.", isAlert = false),
+            gameLog = logs
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Draw Two Action
+    // -------------------------------------------------------------------------
+
+    fun onChooseDrawTwo(index: Int) {
+        val lan = snapshotSession()
+        if (!isLocalPlayersTurn()) return
+        if (lan.role.isGuest) {
+            sendActiveLine(LanStateCodec.encodeAction(LanAction.ChooseDrawTwo(index)))
+            return
+        }
+        synchronized(stateLock) {
+            performChooseDrawTwoCard(index)
+            broadcastStateIfHost()
+        }
+        scheduleAiTurnIfNeeded()
+    }
+
+    private fun performChooseDrawTwoCard(index: Int) {
+        val current = _uiState.value
+        if (current.phase != TurnPhase.DRAW_TWO_CHOOSING || current.drawTwoPendingCards == null) return
+        val (c1, c2) = current.drawTwoPendingCards ?: return
+        val chosenCard = if (index == 0) c1 else c2
+        val discardedCard = if (index == 0) c2 else c1
+        val newDiscard = current.discardPile + discardedCard
+        val activeLabel = actorName(current.activePlayer)
+        val logs = prependLog(
+            current.gameLog,
+            "$activeLabel chose ${chosenCard.type.title()} (${chosenCard.type.subtitle()}) from Draw Two!",
+            LogCategory.DRAW_TWO
+        )
+        _uiState.value = current.copy(
+            phase = TurnPhase.AWAITING_DRAW,
+            discardPile = newDiscard,
+            drawTwoPendingCards = null,
+            gameLog = logs
+        )
+        performDrawCard(forcedCard = chosenCard)
     }
 
     private fun prependLog(

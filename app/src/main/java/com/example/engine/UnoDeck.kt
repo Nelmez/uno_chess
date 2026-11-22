@@ -114,6 +114,30 @@ object UnoDeck {
             cards.add(UnoCard(id = nextId++, color = UnoColor.YELLOW, type = UnoCardType.Wild))
         }
 
+        if (SpecialCardKey.SNIPER in enabledSpecials) {
+            listOf(UnoColor.RED, UnoColor.GREEN).forEach { color ->
+                cards.add(UnoCard(id = nextId++, color = color, type = UnoCardType.Sniper))
+            }
+        }
+
+        if (SpecialCardKey.PORTAL in enabledSpecials) {
+            listOf(UnoColor.BLUE, UnoColor.YELLOW).forEach { color ->
+                cards.add(UnoCard(id = nextId++, color = color, type = UnoCardType.Portal))
+            }
+        }
+
+        if (SpecialCardKey.TRAP in enabledSpecials) {
+            listOf(UnoColor.RED, UnoColor.YELLOW).forEach { color ->
+                cards.add(UnoCard(id = nextId++, color = color, type = UnoCardType.TrapCard))
+            }
+        }
+
+        if (SpecialCardKey.DRAW_TWO in enabledSpecials) {
+            listOf(UnoColor.GREEN, UnoColor.BLUE).forEach { color ->
+                cards.add(UnoCard(id = nextId++, color = color, type = UnoCardType.DrawTwo))
+            }
+        }
+
         return cards.shuffled(random)
     }
 

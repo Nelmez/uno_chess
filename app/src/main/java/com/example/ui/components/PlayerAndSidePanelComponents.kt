@@ -1235,6 +1235,203 @@ fun WildCardActionCard(
 }
 
 @Composable
+fun SniperActionCard(
+    state: GameUiState,
+    onSkipSniper: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalUnoChessColors.current
+    val hasSource = state.selectedSniperSourceSquare != null
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(1.dp, Color(0xFFE53935).copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("sniper_action_card"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "🎯 Sniper — Ranged Attack",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    color = Color(0xFFE53935),
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Text(
+                text = if (hasSource) "Tap enemy piece in crosshairs to snipe it." else "Tap 1 of your highlighted pieces to take aim.",
+                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted, fontSize = 11.5.sp)
+            )
+        }
+        ActionCardPillButton(
+            label = "Skip",
+            emphasized = true,
+            onClick = onSkipSniper,
+            testTag = "sniper_skip_button"
+        )
+    }
+}
+
+@Composable
+fun PortalActionCard(
+    state: GameUiState,
+    onSkipPortal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalUnoChessColors.current
+    val hasSource = state.selectedPortalSourceSquare != null
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(1.dp, Color(0xFF8E24AA).copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("portal_action_card"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "🌀 Portal — Teleport",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    color = Color(0xFF8E24AA),
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Text(
+                text = if (hasSource) "Tap an empty square to teleport." else "Tap 1 of your non-King pieces to enter portal.",
+                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted, fontSize = 11.5.sp)
+            )
+        }
+        ActionCardPillButton(
+            label = "Skip",
+            emphasized = true,
+            onClick = onSkipPortal,
+            testTag = "portal_skip_button"
+        )
+    }
+}
+
+@Composable
+fun TrapActionCard(
+    state: GameUiState,
+    onSkipTrap: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalUnoChessColors.current
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("trap_action_card"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "💣 Trap — Arm Landmine",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    color = Color(0xFFFFB300),
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Text(
+                text = "Tap any empty square to arm a hidden trap.",
+                style = MaterialTheme.typography.bodySmall.copy(color = colors.inkMuted, fontSize = 11.5.sp)
+            )
+        }
+        ActionCardPillButton(
+            label = "Skip",
+            emphasized = true,
+            onClick = onSkipTrap,
+            testTag = "trap_skip_button"
+        )
+    }
+}
+
+@Composable
+fun DrawTwoActionCard(
+    state: GameUiState,
+    onChooseDrawTwo: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalUnoChessColors.current
+    val pending = state.drawTwoPendingCards ?: return
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surface)
+            .border(1.dp, Color(0xFF00ACC1).copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("draw_two_action_card"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "+2 Draw Two — Choose 1 to Play",
+            style = MaterialTheme.typography.labelLarge.copy(
+                color = Color(0xFF00ACC1),
+                fontWeight = FontWeight.Bold
+            )
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            listOf(pending.first to 0, pending.second to 1).forEach { (card, index) ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceSubtle)
+                        .border(1.5.dp, Color(0xFF00ACC1), RoundedCornerShape(10.dp))
+                        .clickable { onChooseDrawTwo(index) }
+                        .padding(8.dp)
+                        .testTag("draw_two_choice_$index"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = card.type.shortSymbol(),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = card.type.title(),
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = colors.inkPrimary
+                            )
+                        )
+                        Text(
+                            text = card.type.subtitle(),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 10.sp,
+                                color = colors.inkMuted
+                            ),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun GameLogCard(
     entries: List<LogEntry>,
     maxHeight: Dp? = null,
@@ -1336,6 +1533,10 @@ fun GameLogCard(
                         LogCategory.MERGE, LogCategory.SACRIFICE -> colors.accentTrade
                         LogCategory.HIJACK -> colors.accentHijack
                         LogCategory.PROMOTE -> colors.accentPromote
+                        LogCategory.SNIPER -> Color(0xFFE53935)
+                        LogCategory.PORTAL -> Color(0xFF8E24AA)
+                        LogCategory.TRAP -> Color(0xFFFFB300)
+                        LogCategory.DRAW_TWO -> Color(0xFF00ACC1)
                         LogCategory.GAME_OVER -> colors.inkPrimary
                         else -> colors.inkSecondary
                     }

@@ -286,6 +286,22 @@ fun RulesModalDialog(
                         body = "Choose any currently enabled special card effect that has a legal play on the board and immediately activate it."
                     )
                     RuleItem(
+                        title = "Sniper (🎯)",
+                        body = "Take aim with 1 of your pieces to capture any enemy piece (non-King) along that piece's natural attack ray without moving your piece. Protected/shielded pieces cannot be sniped. You may also Skip."
+                    )
+                    RuleItem(
+                        title = "Portal (🌀)",
+                        body = "Teleport 1 of your non-King pieces to any safe empty square on the board (leaving the King safe from check). You may also Skip."
+                    )
+                    RuleItem(
+                        title = "Trap (💣)",
+                        body = "Arm a hidden landmine on any empty square. The first piece (friendly or enemy) to enter that square is instantly destroyed and ends the turn. You may also Skip."
+                    )
+                    RuleItem(
+                        title = "Draw Two (+2)",
+                        body = "Draw 2 cards simultaneously and choose which one to play for your turn."
+                    )
+                    RuleItem(
                         title = "Suicide",
                         body = "You must eliminate 1 of your own non-King pieces from the board. If you are down to ONLY your King when you draw Suicide, you immediately lose the match!"
                     )

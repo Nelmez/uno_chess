@@ -11,22 +11,23 @@ rules_version = '2';
 //   - hostId: string (required, immutable, 8 to 64 chars) - Host player UUID
 //   - hostName: string (required, immutable, 1 to 24 chars) - Host display name
 //   - status: string (required, enum: 'waiting' | 'playing' | 'closed') - Match status
-//   - createdAt: int (required, immutable) - Creation epoch milliseconds
-//   - hostSeenAt: int (required) - Host heartbeat epoch milliseconds
-//   - stateSeq: int (required, >= 0) - State sequence counter
+//   - createdAt: number (required, immutable) - Creation epoch milliseconds (int or float)
+//   - hostSeenAt: number (required) - Host heartbeat epoch milliseconds (int or float)
+//   - stateSeq: number (required, >= 0) - State sequence counter (int or float)
 //   - guestId: string (optional, 8 to 64 chars) - Guest player UUID (present when status is 'playing' or 'closed')
 //   - guestName: string (optional, 1 to 24 chars) - Guest display name
-//   - guestSeenAt: int (optional) - Guest heartbeat epoch milliseconds
+//   - guestSeenAt: number (optional) - Guest heartbeat epoch milliseconds (int or float)
 //   - state: string (optional, <= 900,000 chars) - Serialized game state
+//   - enabledSpecials: list of strings (optional, immutable, <= 32 items) - Optional enabled special card keys
 //
 // Collection: /lobbies/{code}/actions/{actionId}
 // Document ID: Auto-generated Firestore document ID
 // Fields:
 //   - fromId: string (required, 8 to 64 chars) - Must match parent lobby guestId
 //   - line: string (required, 1 to 900,000 chars) - Serialized move payload
-//   - createdAt: int (required) - Action creation epoch milliseconds
+//   - createdAt: number (required) - Action creation epoch milliseconds (int or float)
 //
-// Note: Authentication is anonymous player-id based (stored locally in SharedPreferences,
+// Note: Authentication is anonymous player-id based (stored locally in SharedPreferences or localStorage,
 // passed in document fields). Firebase Auth (request.auth) is not used.
 //
 // ===============================================================
@@ -60,15 +61,15 @@ service cloud.firestore {
 
     // Validates lobby document schema, field types, and size constraints
     function isValidLobbyDoc(data) {
-      return data.keys().hasOnly(['code', 'hostId', 'hostName', 'status', 'createdAt', 'hostSeenAt', 'stateSeq', 'guestId', 'guestName', 'guestSeenAt', 'state'])
+      return data.keys().hasOnly(['code', 'hostId', 'hostName', 'status', 'createdAt', 'hostSeenAt', 'stateSeq', 'guestId', 'guestName', 'guestSeenAt', 'state', 'enabledSpecials'])
         && data.keys().hasAll(['code', 'hostId', 'hostName', 'status', 'createdAt', 'hostSeenAt', 'stateSeq'])
         && isValidRoomCode(data.code)
         && isValidPlayerId(data.hostId)
         && isValidDisplayName(data.hostName)
         && data.status in ['waiting', 'playing', 'closed']
-        && data.createdAt is int
-        && data.hostSeenAt is int
-        && data.stateSeq is int && data.stateSeq >= 0
+        && data.createdAt is number
+        && data.hostSeenAt is number
+        && data.stateSeq is number && data.stateSeq >= 0
         && (
           !('guestId' in data) || data.guestId == null ||
           isValidPlayerId(data.guestId)
@@ -79,11 +80,15 @@ service cloud.firestore {
         )
         && (
           !('guestSeenAt' in data) || data.guestSeenAt == null ||
-          data.guestSeenAt is int
+          data.guestSeenAt is number
         )
         && (
           !('state' in data) || data.state == null ||
           (data.state is string && data.state.size() <= 900000)
+        )
+        && (
+          !('enabledSpecials' in data) || data.enabledSpecials == null ||
+          (data.enabledSpecials is list && data.enabledSpecials.size() <= 32)
         );
     }
 
@@ -99,7 +104,7 @@ service cloud.firestore {
         && data.line is string
         && data.line.size() > 0
         && data.line.size() < 900000
-        && data.createdAt is int;
+        && data.createdAt is number;
     }
 
     // ===============================================================
@@ -111,7 +116,8 @@ service cloud.firestore {
         && request.resource.data.code == code
         && request.resource.data.hostId == resource.data.hostId
         && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.hostName == resource.data.hostName;
+        && request.resource.data.hostName == resource.data.hostName
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['enabledSpecials']);
     }
 
     // Transition A: Host heartbeat while waiting (or guest disconnect reset)
@@ -134,7 +140,7 @@ service cloud.firestore {
         && ('guestName' in request.resource.data)
         && isValidDisplayName(request.resource.data.guestName)
         && ('guestSeenAt' in request.resource.data)
-        && request.resource.data.guestSeenAt is int
+        && request.resource.data.guestSeenAt is number
         && (!('state' in request.resource.data) || request.resource.data.state == null)
         && request.resource.data.stateSeq == resource.data.stateSeq;
     }
@@ -147,7 +153,7 @@ service cloud.firestore {
         && ('guestId' in request.resource.data)
         && request.resource.data.guestId == resource.data.guestId
         && request.resource.data.get('guestName', null) == resource.data.get('guestName', null)
-        && request.resource.data.stateSeq is int
+        && request.resource.data.stateSeq is number
         && request.resource.data.stateSeq >= resource.data.stateSeq
         && (
           !('state' in request.resource.data) ||

@@ -500,6 +500,38 @@ private fun ThemedUnoCardFace(
                             modifier = Modifier.size(if (compact) 14.dp else 22.dp)
                         )
                     }
+
+                    UnoCardType.Sniper -> {
+                        Text(
+                            text = "🎯",
+                            fontSize = if (compact) 13.sp else 20.sp
+                        )
+                    }
+
+                    UnoCardType.Portal -> {
+                        Text(
+                            text = "🌀",
+                            fontSize = if (compact) 13.sp else 20.sp
+                        )
+                    }
+
+                    UnoCardType.TrapCard -> {
+                        Text(
+                            text = "💣",
+                            fontSize = if (compact) 13.sp else 20.sp
+                        )
+                    }
+
+                    UnoCardType.DrawTwo -> {
+                        Text(
+                            text = "+2",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                color = palette.centerInk,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = if (compact) 12.sp else 19.sp
+                            )
+                        )
+                    }
                 }
             }
 

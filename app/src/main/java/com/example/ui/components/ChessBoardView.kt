@@ -176,6 +176,14 @@ fun ChessBoardView(
                         val isSwapSelected = state.phase == TurnPhase.SWAPPING && state.selectedSwapSquare == square
                         val isCloneTarget = state.phase == TurnPhase.CLONING && square in state.validCloneSquares
                         val isCloneSelected = state.phase == TurnPhase.CLONING && state.selectedCloneSourceSquare == square
+                        val isSniperSource = state.phase == TurnPhase.SNIPING && square in state.validSniperSourceSquares
+                        val isSniperSelected = state.phase == TurnPhase.SNIPING && state.selectedSniperSourceSquare == square
+                        val isSniperTarget = state.phase == TurnPhase.SNIPING && square in state.validSniperTargetSquares
+                        val isPortalSource = state.phase == TurnPhase.PORTALING && square in state.validPortalSourceSquares
+                        val isPortalSelected = state.phase == TurnPhase.PORTALING && state.selectedPortalSourceSquare == square
+                        val isPortalDestination = state.phase == TurnPhase.PORTALING && square in state.validPortalDestinationSquares
+                        val isTrapPlacementTarget = state.phase == TurnPhase.TRAPPING && square in state.validTrapSquares
+                        val hasArmedTrap = state.traps.any { it.square == square }
                         val isFrozenPiece = piece != null && state.isPieceFrozen(piece)
                         val isAlreadyMovedThisTurn = piece != null &&
                             state.phase == TurnPhase.MOVING &&
@@ -363,6 +371,57 @@ fun ChessBoardView(
                                             width = if (isCloneSelected) 2.dp else 1.5.dp,
                                             color = colors.highlightCloneBorder
                                         )
+                                 )
+                            }
+
+                            if (isSniperSource || isSniperSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0x33E53935))
+                                        .border(
+                                            width = if (isSniperSelected) 2.dp else 1.5.dp,
+                                            color = Color(0xFFE53935)
+                                        )
+                                )
+                            }
+
+                            if (isSniperTarget) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0x4DE53935))
+                                        .border(2.dp, Color(0xFFFF1744))
+                                )
+                            }
+
+                            if (isPortalSource || isPortalSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0x338E24AA))
+                                        .border(
+                                            width = if (isPortalSelected) 2.dp else 1.5.dp,
+                                            color = Color(0xFF8E24AA)
+                                        )
+                                )
+                            }
+
+                            if (isPortalDestination) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0x3300ACC1))
+                                        .border(1.5.dp, Color(0xFF00ACC1))
+                                )
+                            }
+
+                            if (isTrapPlacementTarget) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0x33FFB300))
+                                        .border(1.5.dp, Color(0xFFFFB300))
                                 )
                             }
 
@@ -574,6 +633,37 @@ fun ChessBoardView(
                                         )
                                     }
                                 }
+                            }
+
+                            if (hasArmedTrap) {
+                                Text(
+                                    text = "💣",
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(1.dp)
+                                        .testTag("trap_badge_${square.toAlgebraic()}")
+                                )
+                            }
+
+                            if (isSniperTarget) {
+                                Text(
+                                    text = "🎯",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .testTag("sniper_target_${square.toAlgebraic()}")
+                                )
+                            }
+
+                            if (isPortalDestination) {
+                                Text(
+                                    text = "🌀",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .testTag("portal_dest_${square.toAlgebraic()}")
+                                )
                             }
 
                             // Clean legal move dot / capture ring
