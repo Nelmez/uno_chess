@@ -237,7 +237,7 @@ export const SettingsModalDialog: React.FC<SettingsModalDialogProps> = ({
               marginTop: '8px',
             }}
           >
-            UNO Chess Web v1.4.2 · Online Multiplayer & PWA
+            UNO Chess Web v1.5 · Online Multiplayer & PWA
           </div>
         </div>
       </div>
