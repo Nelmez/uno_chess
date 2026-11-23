@@ -515,28 +515,30 @@ export function choosePortalAction(
 ): { pieceSquare: Square; destSquare: Square } | null {
   if (state.validPortalSources.length === 0) return null;
   const activeColor = getActiveColor(state);
+  const promoRow = activeColor === 'WHITE' ? 0 : 7;
 
-  const sources = [...state.validPortalSources];
-  if (mode !== 'VS_AI_EASY') {
-    // Prioritize higher material pieces or threatened pieces
-    sources.sort((a, b) => {
-      const pa = state.board[a.row][a.col];
-      const pb = state.board[b.row][b.col];
-      return (pb ? PIECE_META[pb.type].materialValue : 0) - (pa ? PIECE_META[pa.type].materialValue : 0);
-    });
-  }
+  const candidates: Array<{ pieceSquare: Square; destSquare: Square; score: number }> = [];
 
-  for (const src of sources) {
+  for (const src of state.validPortalSources) {
+    const piece = state.board[src.row][src.col];
+    if (!piece) continue;
     const dests = ChessEngine.getValidPortalDestinations(state.board, activeColor, src);
-    if (dests.length === 0) continue;
-    if (mode === 'VS_AI_EASY') {
-      return { pieceSquare: src, destSquare: pickRandom(dests) };
+    for (const dest of dests) {
+      let score = PIECE_META[piece.type].materialValue * 10 + centerBonus(dest);
+      if (piece.type === 'PAWN' && dest.row === promoRow) {
+        score += 900;
+      }
+      candidates.push({ pieceSquare: src, destSquare: dest, score });
     }
-    // Pick center or advanced square
-    dests.sort((a, b) => centerBonus(b) - centerBonus(a));
-    return { pieceSquare: src, destSquare: dests[0] };
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+  if (mode === 'VS_AI_EASY') {
+    return pickRandom(candidates);
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0];
 }
 
 export function chooseTrapSquare(state: GameUiState, mode: GameMode): Square | null {

@@ -11,11 +11,13 @@ import com.example.model.GameOutcome
 import com.example.model.MatchEndReason
 import com.example.model.MatchStats
 import com.example.model.OpponentMode
+import com.example.model.PendingPromotion
 import com.example.model.PieceColor
 import com.example.model.PieceType
 import com.example.model.PlayerId
 import com.example.model.SpecialCardKey
 import com.example.model.Square
+import com.example.model.Trap
 import com.example.model.TurnPhase
 import com.example.model.UnoCard
 import com.example.model.UnoCardType
@@ -1161,5 +1163,119 @@ class UnoChessEngineTest {
         assertEquals(2, vm.uiState.value.movesRemaining)
         // Unchosen card (Freeze) is in discard
         assertTrue(vm.uiState.value.discardPile.any { it.type == UnoCardType.Freeze })
+    }
+
+    @Test
+    fun `king steps on mine ends game in checkmate for opponent`() {
+        val vm = UnoChessViewModel(Random(1)) {
+            listOf(UnoCard(1, UnoColor.RED, UnoCardType.NumberCard(1)))
+        }
+        // Place White King at (6, 4) and a trap at (5, 4)
+        val customBoard = emptyBoard()
+        customBoard[6][4] = ChessPiece(1, PieceType.KING, PieceColor.WHITE)
+        customBoard[0][4] = ChessPiece(2, PieceType.KING, PieceColor.BLACK)
+
+        val customState = vm.uiState.value.copy(
+            board = customBoard.map { it.toList() },
+            phase = TurnPhase.AWAITING_DRAW,
+            activePlayer = PlayerId.PLAYER_1,
+            traps = listOf(Trap(Square(5, 4), PlayerId.PLAYER_2))
+        )
+        vm.setStateForTest(customState)
+
+        vm.drawCard() // draws NumberCard(1) -> phase is MOVING
+        assertEquals(TurnPhase.MOVING, vm.uiState.value.phase)
+
+        // White moves King from (6, 4) to (5, 4) onto the mine
+        vm.onSquareTapped(Square(6, 4))
+        vm.onSquareTapped(Square(5, 4))
+
+        // King is destroyed
+        assertNull(vm.uiState.value.board[6][4])
+        assertNull(vm.uiState.value.board[5][4])
+        assertEquals(0, vm.uiState.value.traps.size)
+
+        // Game ends immediately in checkmate for Player 2
+        assertEquals(TurnPhase.GAME_OVER, vm.uiState.value.phase)
+        val outcome = vm.uiState.value.outcome
+        assertTrue(outcome is GameOutcome.Checkmate)
+        val checkmate = outcome as GameOutcome.Checkmate
+        assertEquals(PlayerId.PLAYER_2, checkmate.winnerPlayer)
+        assertEquals(PieceColor.BLACK, checkmate.winnerColor)
+    }
+
+    @Test
+    fun `pawn portal to back rank triggers promotion and promotes to chosen piece`() {
+        val vm = UnoChessViewModel(Random(1))
+        val customBoard = emptyBoard()
+        customBoard[1][4] = ChessPiece(10, PieceType.PAWN, PieceColor.WHITE)
+        customBoard[7][4] = ChessPiece(1, PieceType.KING, PieceColor.WHITE)
+        customBoard[0][0] = ChessPiece(2, PieceType.KING, PieceColor.BLACK)
+
+        val customState = vm.uiState.value.copy(
+            board = customBoard.map { it.toList() },
+            phase = TurnPhase.PORTALING,
+            activePlayer = PlayerId.PLAYER_1,
+            validPortalSourceSquares = setOf(Square(1, 4)),
+            traps = emptyList()
+        )
+        vm.setStateForTest(customState)
+
+        // Select pawn as portal source
+        vm.onSquareTapped(Square(1, 4))
+        assertEquals(Square(1, 4), vm.uiState.value.selectedPortalSourceSquare)
+        assertTrue(vm.uiState.value.validPortalDestinationSquares.contains(Square(0, 4)))
+
+        // Teleport to back rank (0, 4)
+        vm.onSquareTapped(Square(0, 4))
+
+        // Should trigger pending promotion
+        assertNotNull(vm.uiState.value.pendingPromotion)
+        assertEquals(Square(1, 4), vm.uiState.value.pendingPromotion?.from)
+        assertEquals(Square(0, 4), vm.uiState.value.pendingPromotion?.to)
+
+        // Select Queen promotion
+        vm.onPromotionSelected(PieceType.QUEEN)
+
+        // Promotion handled, pawn at (1, 4) gone, queen placed at (0, 4)
+        assertNull(vm.uiState.value.pendingPromotion)
+        assertNull(vm.uiState.value.board[1][4])
+        val promoted = vm.uiState.value.board[0][4]
+        assertNotNull(promoted)
+        assertEquals(PieceType.QUEEN, promoted?.type)
+        assertEquals(PieceColor.WHITE, promoted?.color)
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+        assertEquals(PlayerId.PLAYER_2, vm.uiState.value.activePlayer)
+    }
+
+    @Test
+    fun `pawn portal to back rank with trap destroys pawn without promotion`() {
+        val vm = UnoChessViewModel(Random(1))
+        val customBoard = emptyBoard()
+        customBoard[1][4] = ChessPiece(10, PieceType.PAWN, PieceColor.WHITE)
+        customBoard[7][4] = ChessPiece(1, PieceType.KING, PieceColor.WHITE)
+        customBoard[0][0] = ChessPiece(2, PieceType.KING, PieceColor.BLACK)
+
+        val customState = vm.uiState.value.copy(
+            board = customBoard.map { it.toList() },
+            phase = TurnPhase.PORTALING,
+            activePlayer = PlayerId.PLAYER_1,
+            validPortalSourceSquares = setOf(Square(1, 4)),
+            traps = listOf(Trap(Square(0, 4), PlayerId.PLAYER_2))
+        )
+        vm.setStateForTest(customState)
+
+        // Select pawn as portal source
+        vm.onSquareTapped(Square(1, 4))
+        // Teleport to trapped back rank (0, 4)
+        vm.onSquareTapped(Square(0, 4))
+
+        // Trap should trigger, pawn destroyed, no promotion dialog
+        assertNull(vm.uiState.value.pendingPromotion)
+        assertNull(vm.uiState.value.board[1][4])
+        assertNull(vm.uiState.value.board[0][4])
+        assertEquals(0, vm.uiState.value.traps.size)
+        assertEquals(TurnPhase.AWAITING_DRAW, vm.uiState.value.phase)
+        assertEquals(PlayerId.PLAYER_2, vm.uiState.value.activePlayer)
     }
 }

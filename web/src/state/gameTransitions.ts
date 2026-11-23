@@ -32,6 +32,7 @@ import {
 } from '../model/gameModels';
 import * as ChessEngine from '../engine/chessEngine';
 import * as UnoDeck from '../engine/unoDeck';
+import { executePortalTeleport } from './specialTransitions';
 
 export interface TransitionContext {
   nextLogId: () => number;
@@ -1287,8 +1288,91 @@ export function executeChessMove(
   );
 
   if (trapTriggered) {
+    const isKing = animatedPiece.type === 'KING';
     const trapMsg = `💣 Trap triggered on ${squareToAlgebraic(move.to).toUpperCase()}! ${activeLabel}'s ${PIECE_META[animatedPiece.type].displayName} was destroyed!`;
     logs = prependLog(logs, trapMsg, 'TRAP', ctx);
+
+    if (isKing) {
+      const outcome: GameOutcome = {
+        kind: 'CHECKMATE',
+        winnerPlayer: oppPlayer,
+        winnerColor: enemy,
+      };
+      const endMsg = `💣 ${activeLabel}'s King stepped on a landmine! ${getActorName(oppPlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer)} (${colorDisplayName(enemy)}) wins!`;
+      logs = prependLog(logs, endMsg, 'GAME_OVER', ctx);
+      ctx.onOutcomeRecorded?.(outcome);
+      return {
+        ...current,
+        board: finalBoard,
+        phase: 'GAME_OVER',
+        movesRemaining: 0,
+        movedPieceIdsThisTurn: [],
+        frozenPieceId: null,
+        frozenOwner: null,
+        validFreezeSquares: [],
+        shieldedPieceId: null,
+        shieldedOwner: null,
+        traps: updatedTraps,
+        selectedSquare: null,
+        legalMovesForSelected: [],
+        capturedPieces: updatedCaptured,
+        lastMoveFrom: move.from,
+        lastMoveTo: move.to,
+        lastRevivedSquare: null,
+        checkedKingSquare: null,
+        pendingPromotion: null,
+        noticeBanner: { id: ctx.nextNoticeId(), message: endMsg, isAlert: true },
+        moveAnimationEvent: moveAnim,
+        reviveAnimationEvent: null,
+        gameLog: logs,
+        outcome,
+        castlingRights: result.castlingRights,
+        enPassantTarget: null,
+        enPassantOwner: null,
+      };
+    }
+
+    if (!enemyHasMove) {
+      const outcome: GameOutcome = enemyInCheck
+        ? { kind: 'CHECKMATE', winnerPlayer: activePlayer, winnerColor: activeColor }
+        : { kind: 'STALEMATE' };
+      const endMessage =
+        outcome.kind === 'CHECKMATE'
+          ? `Checkmate! ${activeLabel} (${colorDisplayName(activeColor)}) wins!`
+          : `Stalemate! ${getActorName(oppPlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer)} (${colorDisplayName(enemy)}) has no legal moves.`;
+      logs = prependLog(logs, endMessage, 'GAME_OVER', ctx);
+      ctx.onOutcomeRecorded?.(outcome);
+      return {
+        ...current,
+        board: finalBoard,
+        phase: 'GAME_OVER',
+        movesRemaining: 0,
+        movedPieceIdsThisTurn: [],
+        frozenPieceId: null,
+        frozenOwner: null,
+        validFreezeSquares: [],
+        shieldedPieceId: null,
+        shieldedOwner: null,
+        traps: updatedTraps,
+        selectedSquare: null,
+        legalMovesForSelected: [],
+        capturedPieces: updatedCaptured,
+        lastMoveFrom: move.from,
+        lastMoveTo: move.to,
+        lastRevivedSquare: null,
+        checkedKingSquare: enemyInCheck ? ChessEngine.findKing(finalBoard, enemy) : null,
+        pendingPromotion: null,
+        noticeBanner: { id: ctx.nextNoticeId(), message: endMessage, isAlert: enemyInCheck },
+        moveAnimationEvent: moveAnim,
+        reviveAnimationEvent: null,
+        gameLog: logs,
+        outcome,
+        castlingRights: result.castlingRights,
+        enPassantTarget: null,
+        enPassantOwner: null,
+      };
+    }
+
     return {
       ...current,
       board: finalBoard,
@@ -1653,6 +1737,154 @@ export function executeHijackMove(
   );
   const opponentProtected = protectedPieceIdsForOwner(nextShield.id, nextShield.owner, activeColor);
 
+  let finalBoard = result.board;
+  let updatedTraps = [...current.traps];
+  const trapIndex = updatedTraps.findIndex((t) => t.row === move.to.row && t.col === move.to.col);
+  let trapTriggered = false;
+  if (trapIndex >= 0) {
+    trapTriggered = true;
+    updatedTraps.splice(trapIndex, 1);
+    finalBoard = ChessEngine.removePiece(finalBoard, move.to);
+    const pieceCol = animatedPiece.color;
+    updatedCaptured[pieceCol] = [...updatedCaptured[pieceCol], animatedPiece].sort(
+      (a, b) => PIECE_META[b.type].materialValue - PIECE_META[a.type].materialValue
+    );
+  }
+
+  if (trapTriggered) {
+    const isOpponentKing = animatedPiece.type === 'KING';
+    const trapMsg = `💣 Trap triggered on ${squareToAlgebraic(move.to).toUpperCase()}! ${colorDisplayName(enemy)} ${PIECE_META[animatedPiece.type].displayName} was destroyed!`;
+    let trapLogs = prependLog(
+      current.gameLog,
+      `${activeLabel} hijacked ${colorDisplayName(enemy)}: ${result.notation}`,
+      'HIJACK',
+      ctx
+    );
+    trapLogs = prependLog(trapLogs, trapMsg, 'TRAP', ctx);
+
+    if (isOpponentKing) {
+      const outcome: GameOutcome = {
+        kind: 'CHECKMATE',
+        winnerPlayer: activePlayer,
+        winnerColor: activeColor,
+      };
+      const endMsg = `💣 ${colorDisplayName(enemy)} King stepped on a landmine! ${activeLabel} (${colorDisplayName(activeColor)}) wins!`;
+      trapLogs = prependLog(trapLogs, endMsg, 'GAME_OVER', ctx);
+      ctx.onOutcomeRecorded?.(outcome);
+      return {
+        ...current,
+        board: finalBoard,
+        phase: 'GAME_OVER',
+        movesRemaining: 0,
+        movedPieceIdsThisTurn: [],
+        frozenPieceId: null,
+        frozenOwner: null,
+        validFreezeSquares: [],
+        shieldedPieceId: null,
+        shieldedOwner: null,
+        traps: updatedTraps,
+        selectedSquare: null,
+        legalMovesForSelected: [],
+        capturedPieces: updatedCaptured,
+        lastMoveFrom: move.from,
+        lastMoveTo: move.to,
+        lastRevivedSquare: null,
+        checkedKingSquare: null,
+        pendingPromotion: null,
+        noticeBanner: { id: ctx.nextNoticeId(), message: endMsg, isAlert: true },
+        moveAnimationEvent: moveAnim,
+        reviveAnimationEvent: null,
+        gameLog: trapLogs,
+        outcome,
+        castlingRights: result.castlingRights,
+        enPassantTarget: null,
+        enPassantOwner: null,
+      };
+    }
+
+    const enemyInCheckAfterTrap = ChessEngine.isKingInCheck(finalBoard, enemy);
+    const enemyHasMoveAfterTrap = ChessEngine.hasAnyLegalMove(
+      finalBoard,
+      enemy,
+      result.castlingRights,
+      null,
+      null,
+      new Set(),
+      opponentProtected
+    );
+
+    if (!enemyHasMoveAfterTrap) {
+      const outcome: GameOutcome = enemyInCheckAfterTrap
+        ? { kind: 'CHECKMATE', winnerPlayer: activePlayer, winnerColor: activeColor }
+        : { kind: 'STALEMATE' };
+      const endMessage =
+        outcome.kind === 'CHECKMATE'
+          ? `Checkmate! ${activeLabel} (${colorDisplayName(activeColor)}) wins!`
+          : `Stalemate! ${getActorName(oppPlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer)} (${colorDisplayName(enemy)}) has no legal moves.`;
+      trapLogs = prependLog(trapLogs, endMessage, 'GAME_OVER', ctx);
+      ctx.onOutcomeRecorded?.(outcome);
+      return {
+        ...current,
+        board: finalBoard,
+        phase: 'GAME_OVER',
+        movesRemaining: 0,
+        movedPieceIdsThisTurn: [],
+        frozenPieceId: null,
+        frozenOwner: null,
+        validFreezeSquares: [],
+        shieldedPieceId: null,
+        shieldedOwner: null,
+        traps: updatedTraps,
+        selectedSquare: null,
+        legalMovesForSelected: [],
+        capturedPieces: updatedCaptured,
+        lastMoveFrom: move.from,
+        lastMoveTo: move.to,
+        lastRevivedSquare: null,
+        checkedKingSquare: enemyInCheckAfterTrap ? ChessEngine.findKing(finalBoard, enemy) : null,
+        pendingPromotion: null,
+        noticeBanner: { id: ctx.nextNoticeId(), message: endMessage, isAlert: enemyInCheckAfterTrap },
+        moveAnimationEvent: moveAnim,
+        reviveAnimationEvent: null,
+        gameLog: trapLogs,
+        outcome,
+        castlingRights: result.castlingRights,
+        enPassantTarget: null,
+        enPassantOwner: null,
+      };
+    }
+
+    return {
+      ...current,
+      board: finalBoard,
+      activePlayer: oppPlayer,
+      phase: 'AWAITING_DRAW',
+      movesRemaining: 0,
+      movedPieceIdsThisTurn: [],
+      frozenPieceId: nextTurnFrozenId,
+      frozenOwner: nextTurnFrozenOwner,
+      validFreezeSquares: [],
+      shieldedPieceId: nextShield.id,
+      shieldedOwner: nextShield.owner,
+      traps: updatedTraps,
+      selectedSquare: null,
+      legalMovesForSelected: [],
+      capturedPieces: updatedCaptured,
+      lastMoveFrom: move.from,
+      lastMoveTo: move.to,
+      lastRevivedSquare: null,
+      checkedKingSquare: enemyInCheckAfterTrap ? ChessEngine.findKing(finalBoard, enemy) : null,
+      pendingPromotion: null,
+      noticeBanner: { id: ctx.nextNoticeId(), message: trapMsg, isAlert: true },
+      moveAnimationEvent: moveAnim,
+      reviveAnimationEvent: null,
+      gameLog: trapLogs,
+      castlingRights: result.castlingRights,
+      enPassantTarget: null,
+      enPassantOwner: null,
+    };
+  }
+
   const enemyInCheck = ChessEngine.isKingInCheck(result.board, enemy);
   const enemyHasMove = ChessEngine.hasAnyLegalMove(
     result.board,
@@ -1756,6 +1988,16 @@ export function performPromotionSelected(
   if (!pending) return current;
   const activeColor = getActiveColor(current);
   const enemy = opponentColor(activeColor);
+
+  if (current.phase === 'PORTALING') {
+    return executePortalTeleport(
+      { ...current, pendingPromotion: null },
+      pending.from,
+      pending.to,
+      pieceType,
+      ctx
+    );
+  }
 
   if (current.phase === 'HIJACKING') {
     const enemyExcluded = new Set<number>(

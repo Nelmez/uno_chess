@@ -723,21 +723,28 @@ object UnoChessAi {
         val sources = state.validPortalSourceSquares.toList()
         if (sources.isEmpty()) return null
         val activeColor = state.activeColor
+        val promoRow = if (activeColor == PieceColor.WHITE) 0 else 7
 
-        val sortedSources = if (difficulty != AiDifficulty.EASY) {
-            sources.sortedByDescending { sq -> pieceScore(state.board[sq.row][sq.col]?.type) }
-        } else sources
-
-        for (src in sortedSources) {
+        val candidates = mutableListOf<Triple<Square, Square, Int>>()
+        for (src in sources) {
+            val piece = state.board[src.row][src.col] ?: continue
             val dests = ChessEngine.getValidPortalDestinations(state.board, activeColor, src)
-            if (dests.isEmpty()) continue
-            if (difficulty == AiDifficulty.EASY) {
-                return AiPortalDecision(src, dests[random.nextInt(dests.size)])
+            for (dest in dests) {
+                var score = pieceScore(piece.type) * 10 + centerDistanceBonus(dest)
+                if (piece.type == PieceType.PAWN && dest.row == promoRow) {
+                    score += 900
+                }
+                candidates.add(Triple(src, dest, score))
             }
-            val bestDest = dests.maxByOrNull { centerDistanceBonus(it) } ?: dests.first()
-            return AiPortalDecision(src, bestDest)
         }
-        return null
+        if (candidates.isEmpty()) return null
+        if (difficulty == AiDifficulty.EASY) {
+            val pick = candidates[random.nextInt(candidates.size)]
+            return AiPortalDecision(pick.first, pick.second)
+        }
+        candidates.sortByDescending { it.third }
+        val top = candidates.first()
+        return AiPortalDecision(top.first, top.second)
     }
 
     fun chooseTrapSquare(

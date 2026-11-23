@@ -2361,6 +2361,80 @@ class UnoChessViewModel(
         )
         val opponentProtectedIds = protectedPieceIdsForOwner(nextTurnShieldId, nextTurnShieldOwner, activeColor)
 
+        val steppedTrap = current.traps.firstOrNull { it.square == move.to }
+        if (steppedTrap != null) {
+            val updatedTraps = current.traps - steppedTrap
+            val trapBoard = ChessEngine.removePiece(result.board, move.to)
+            val list = updatedCaptured[animatedPiece.color].orEmpty() + animatedPiece
+            updatedCaptured[animatedPiece.color] = list.sortedByDescending { it.type.materialValue }
+
+            val isOpponentKing = animatedPiece.type == PieceType.KING
+            val trapMsg = "💣 Trap triggered on ${move.to.toAlgebraic().uppercase()}! ${opponentColor.displayName} ${animatedPiece.type.displayName} was destroyed!"
+            var trapLogs = prependLog(
+                current.gameLog,
+                "$activeLabel hijacked ${opponentColor.displayName}: ${result.notation}",
+                LogCategory.HIJACK
+            )
+            trapLogs = prependLog(trapLogs, trapMsg, LogCategory.TRAP)
+
+            val oppInCheck = if (isOpponentKing) false else ChessEngine.isKingInCheck(trapBoard, opponentColor)
+            val oppHasMove = if (isOpponentKing) false else ChessEngine.hasAnyLegalMove(
+                board = trapBoard,
+                color = opponentColor,
+                castlingRights = result.castlingRights,
+                enPassantTarget = null,
+                enPassantOwner = null,
+                protectedPieceIds = opponentProtectedIds
+            )
+            val outcome: GameOutcome? = if (isOpponentKing) {
+                GameOutcome.Checkmate(winnerPlayer = activePlayer, winnerColor = activeColor)
+            } else if (!oppHasMove) {
+                if (oppInCheck) GameOutcome.Checkmate(activePlayer, activeColor) else GameOutcome.Stalemate
+            } else null
+
+            val endMsg = if (outcome != null) {
+                val msg = if (isOpponentKing) {
+                    "💣 ${opponentColor.displayName} King stepped on a landmine! $activeLabel (${activeColor.displayName}) wins!"
+                } else if (outcome is GameOutcome.Checkmate) {
+                    "Checkmate! $activeLabel (${activeColor.displayName}) wins!"
+                } else {
+                    "Stalemate! Match drawn."
+                }
+                trapLogs = prependLog(trapLogs, msg, LogCategory.GAME_OVER)
+                recordMatchOutcomeIfNeeded(outcome)
+                msg
+            } else null
+
+            _uiState.value = current.copy(
+                board = trapBoard,
+                phase = if (outcome != null) TurnPhase.GAME_OVER else TurnPhase.AWAITING_DRAW,
+                activePlayer = opponentPlayer,
+                movesRemaining = 0,
+                movedPieceIdsThisTurn = emptySet(),
+                frozenPieceId = if (outcome != null) null else nextTurnFrozenId,
+                frozenOwner = if (outcome != null) null else nextTurnFrozenOwner,
+                shieldedPieceId = if (outcome != null) null else nextTurnShieldId,
+                shieldedOwner = if (outcome != null) null else nextTurnShieldOwner,
+                traps = updatedTraps,
+                selectedSquare = null,
+                legalMovesForSelected = emptyList(),
+                capturedPieces = updatedCaptured.toMap(),
+                lastMoveFrom = move.from,
+                lastMoveTo = move.to,
+                lastRevivedSquare = null,
+                checkedKingSquare = if (oppInCheck) ChessEngine.findKing(trapBoard, opponentColor) else null,
+                pendingPromotion = null,
+                noticeBanner = NoticeBanner(id = nextNoticeId++, message = endMsg ?: trapMsg, isAlert = true),
+                moveAnimationEvent = moveAnim,
+                gameLog = trapLogs,
+                outcome = outcome,
+                castlingRights = result.castlingRights,
+                enPassantTarget = null,
+                enPassantOwner = null
+            )
+            return
+        }
+
         val opponentInCheck = ChessEngine.isKingInCheck(result.board, opponentColor)
         val opponentHasLegalMove = ChessEngine.hasAnyLegalMove(
             board = result.board,
@@ -3348,6 +3422,16 @@ class UnoChessViewModel(
             return
         }
 
+        if (current.phase == TurnPhase.PORTALING) {
+            executePortalTeleport(
+                current = current.copy(pendingPromotion = null),
+                source = pending.from,
+                dest = pending.to,
+                promotedType = pieceType
+            )
+            return
+        }
+
         val protectedEnemyIds = protectedPieceIdsForOwner(
             shieldedPieceId = current.shieldedPieceId,
             shieldedOwner = current.shieldedOwner,
@@ -3469,12 +3553,13 @@ class UnoChessViewModel(
             val list = updatedCaptured[animatedPiece.color].orEmpty() + animatedPiece
             updatedCaptured[animatedPiece.color] = list.sortedByDescending { it.type.materialValue }
 
+            val isKing = animatedPiece.type == PieceType.KING
             val trapMsg = "💣 Trap triggered on ${move.to.toAlgebraic().uppercase()}! $activeLabel's ${animatedPiece.type.displayName} was destroyed!"
             var trapLogs = prependLog(current.gameLog, "$activeLabel (${activeColor.displayName}): ${result.notation}", LogCategory.MOVE)
             trapLogs = prependLog(trapLogs, trapMsg, LogCategory.TRAP)
 
-            val oppInCheck = ChessEngine.isKingInCheck(trapBoard, opponentColor)
-            val oppHasMove = ChessEngine.hasAnyLegalMove(
+            val oppInCheck = if (isKing) false else ChessEngine.isKingInCheck(trapBoard, opponentColor)
+            val oppHasMove = if (isKing) true else ChessEngine.hasAnyLegalMove(
                 board = trapBoard,
                 color = opponentColor,
                 castlingRights = result.castlingRights,
@@ -3482,15 +3567,24 @@ class UnoChessViewModel(
                 enPassantOwner = null,
                 protectedPieceIds = opponentProtectedIds
             )
-            val outcome = if (!oppHasMove) {
+            val outcome: GameOutcome? = if (isKing) {
+                GameOutcome.Checkmate(winnerPlayer = opponentPlayer, winnerColor = opponentColor)
+            } else if (!oppHasMove) {
                 if (oppInCheck) GameOutcome.Checkmate(activePlayer, activeColor) else GameOutcome.Stalemate
             } else null
 
-            if (outcome != null) {
-                val endMsg = if (outcome is GameOutcome.Checkmate) "Checkmate! $activeLabel wins!" else "Stalemate! Match drawn."
-                trapLogs = prependLog(trapLogs, endMsg, LogCategory.GAME_OVER)
+            val endMsg = if (outcome != null) {
+                val msg = if (isKing) {
+                    "💣 $activeLabel's King stepped on a landmine! ${actorName(opponentPlayer)} (${opponentColor.displayName}) wins!"
+                } else if (outcome is GameOutcome.Checkmate) {
+                    "Checkmate! $activeLabel wins!"
+                } else {
+                    "Stalemate! Match drawn."
+                }
+                trapLogs = prependLog(trapLogs, msg, LogCategory.GAME_OVER)
                 recordMatchOutcomeIfNeeded(outcome)
-            }
+                msg
+            } else null
 
             _uiState.value = current.copy(
                 board = trapBoard,
@@ -3499,10 +3593,10 @@ class UnoChessViewModel(
                 boardFlipped = if (outcome == null && snapshotSession().role == NetworkRole.PASS_AND_PLAY && _opponentMode.value is OpponentMode.PassAndPlay) !current.boardFlipped else current.boardFlipped,
                 movesRemaining = 0,
                 movedPieceIdsThisTurn = emptySet(),
-                frozenPieceId = nextTurnFrozenId,
-                frozenOwner = nextTurnFrozenOwner,
-                shieldedPieceId = nextTurnShieldId,
-                shieldedOwner = nextTurnShieldOwner,
+                frozenPieceId = if (outcome != null) null else nextTurnFrozenId,
+                frozenOwner = if (outcome != null) null else nextTurnFrozenOwner,
+                shieldedPieceId = if (outcome != null) null else nextTurnShieldId,
+                shieldedOwner = if (outcome != null) null else nextTurnShieldOwner,
                 traps = updatedTraps,
                 selectedSquare = null,
                 legalMovesForSelected = emptyList(),
@@ -3511,7 +3605,7 @@ class UnoChessViewModel(
                 lastMoveTo = move.to,
                 lastRevivedSquare = null,
                 checkedKingSquare = if (oppInCheck) ChessEngine.findKing(trapBoard, opponentColor) else null,
-                noticeBanner = NoticeBanner(id = nextNoticeId++, message = trapMsg, isAlert = true),
+                noticeBanner = NoticeBanner(id = nextNoticeId++, message = endMsg ?: trapMsg, isAlert = true),
                 gameLog = trapLogs,
                 outcome = outcome,
                 moveAnimationEvent = moveAnim,
@@ -5055,31 +5149,72 @@ class UnoChessViewModel(
         if (square !in current.validPortalDestinationSquares) return
 
         val piece = current.board[selectedSource.row][selectedSource.col] ?: return
+        val trapIndex = current.traps.indexOfFirst { it.square == square }
+        val isPawnPromotion = piece.type == PieceType.PAWN && ((piece.color == PieceColor.WHITE && square.row == 0) || (piece.color == PieceColor.BLACK && square.row == 7))
 
-        var newBoard = ChessEngine.removePiece(current.board, selectedSource)
+        if (isPawnPromotion && trapIndex < 0) {
+            if (isAiTurnNow()) {
+                executePortalTeleport(current, selectedSource, square, PieceType.QUEEN)
+            } else {
+                _uiState.value = current.copy(
+                    pendingPromotion = PendingPromotion(from = selectedSource, to = square)
+                )
+            }
+            return
+        }
+
+        executePortalTeleport(current, selectedSource, square, null)
+    }
+
+    private fun executePortalTeleport(
+        current: GameUiState,
+        source: Square,
+        dest: Square,
+        promotedType: PieceType? = null
+    ) {
+        val activePlayer = current.activePlayer
+        val activeColor = current.activeColor
+        val activeLabel = actorName(activePlayer)
+        val opponentPlayer = current.activePlayer.opponent()
+        val opponentColor = activeColor.opponent()
+
+        val piece = current.board[source.row][source.col] ?: return
+
+        var newBoard = ChessEngine.removePiece(current.board, source)
         val updatedTraps = current.traps.toMutableList()
         var updatedCaptured = current.capturedPieces
-        var summary = "$activeLabel teleported ${piece.type.displayName} from ${selectedSource.toAlgebraic().uppercase()} to ${square.toAlgebraic().uppercase()}!"
         val removedIds = mutableSetOf<Int>()
 
-        val trapIndex = updatedTraps.indexOfFirst { it.square == square }
+        val trapIndex = updatedTraps.indexOfFirst { it.square == dest }
         val triggeredTrap = if (trapIndex >= 0) updatedTraps.removeAt(trapIndex) else null
+
+        val finalPiece = if (promotedType != null && triggeredTrap == null) {
+            piece.copy(type = promotedType)
+        } else {
+            piece
+        }
+
+        var summary = if (promotedType != null && triggeredTrap == null) {
+            "$activeLabel teleported Pawn from ${source.toAlgebraic().uppercase()} to ${dest.toAlgebraic().uppercase()} and promoted to ${promotedType.displayName}!"
+        } else {
+            "$activeLabel teleported ${piece.type.displayName} from ${source.toAlgebraic().uppercase()} to ${dest.toAlgebraic().uppercase()}!"
+        }
 
         if (triggeredTrap != null) {
             removedIds.add(piece.id)
             updatedCaptured = updatedCaptured + (piece.color to (updatedCaptured[piece.color].orEmpty() + piece))
             summary += " 💣 Trap triggered! The piece was destroyed!"
         } else {
-            newBoard = ChessEngine.placePiece(newBoard, square, piece)
+            newBoard = ChessEngine.placePiece(newBoard, dest, finalPiece)
         }
 
         var logs = prependLog(current.gameLog, summary, LogCategory.PORTAL)
 
         val moveAnim = MoveAnimationEvent(
             id = nextAnimId++,
-            from = selectedSource,
-            to = square,
-            piece = piece,
+            from = source,
+            to = dest,
+            piece = finalPiece,
             isCapture = triggeredTrap != null
         )
 
@@ -5124,6 +5259,7 @@ class UnoChessViewModel(
                 shieldedPieceId = null,
                 shieldedOwner = null,
                 capturedPieces = updatedCaptured,
+                pendingPromotion = null,
                 noticeBanner = NoticeBanner(id = nextNoticeId++, message = endMessage, isAlert = false),
                 moveAnimationEvent = moveAnim,
                 gameLog = logs,
@@ -5149,6 +5285,7 @@ class UnoChessViewModel(
             shieldedPieceId = nextTurnShieldId,
             shieldedOwner = nextTurnShieldOwner,
             capturedPieces = updatedCaptured,
+            pendingPromotion = null,
             noticeBanner = NoticeBanner(id = nextNoticeId++, message = summary, isAlert = false),
             moveAnimationEvent = moveAnim,
             gameLog = logs

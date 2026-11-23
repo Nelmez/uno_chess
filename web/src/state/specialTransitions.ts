@@ -1,6 +1,8 @@
 import {
   ChessPiece,
   colorDisplayName,
+  GAME_MODE_META,
+  GameOutcome,
   GameUiState,
   getActiveColor,
   getActorName,
@@ -42,6 +44,12 @@ function passTurnCheckStalemate(
 ): GameUiState {
   const activePlayer = current.activePlayer;
   const activeColor = getActiveColor(current);
+  const activeLabel = getActorName(
+    activePlayer,
+    current.gameMode,
+    ctx.isOnlineMultiplayer,
+    ctx.localPlayer
+  );
   const oppPlayer = opponentPlayer(activePlayer);
   const enemy = opponentColor(activeColor);
 
@@ -54,6 +62,7 @@ function passTurnCheckStalemate(
   );
   const opponentProtected = protectedPieceIdsForOwner(nextShield.id, nextShield.owner, activeColor);
 
+  const enemyInCheck = ChessEngine.isKingInCheck(newBoard, enemy);
   const enemyHasMove = ChessEngine.hasAnyLegalMove(
     newBoard,
     enemy,
@@ -65,9 +74,14 @@ function passTurnCheckStalemate(
   );
 
   if (!enemyHasMove) {
-    const msg = `Stalemate! ${getActorName(oppPlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer)} (${colorDisplayName(enemy)}) has no legal moves.`;
+    const outcome: GameOutcome = enemyInCheck
+      ? { kind: 'CHECKMATE', winnerPlayer: activePlayer, winnerColor: activeColor }
+      : { kind: 'STALEMATE' };
+    const msg = enemyInCheck
+      ? `Checkmate! ${activeLabel} (${colorDisplayName(activeColor)}) wins!`
+      : `Stalemate! ${getActorName(oppPlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer)} (${colorDisplayName(enemy)}) has no legal moves.`;
     logs = prependLog(logs, msg, 'GAME_OVER', ctx);
-    ctx.onOutcomeRecorded?.({ kind: 'STALEMATE' });
+    ctx.onOutcomeRecorded?.(outcome);
     return {
       ...current,
       ...extraPatch,
@@ -77,9 +91,10 @@ function passTurnCheckStalemate(
       frozenOwner: null,
       shieldedPieceId: null,
       shieldedOwner: null,
-      noticeBanner: { id: ctx.nextNoticeId(), message: msg, isAlert: false },
+      checkedKingSquare: enemyInCheck ? ChessEngine.findKing(newBoard, enemy) : null,
+      noticeBanner: { id: ctx.nextNoticeId(), message: msg, isAlert: enemyInCheck },
       gameLog: logs,
-      outcome: { kind: 'STALEMATE' },
+      outcome,
       castlingRights: updatedCastling,
       enPassantTarget: null,
       enPassantOwner: null,
@@ -1439,6 +1454,70 @@ export function skipSniper(current: GameUiState, ctx: TransitionContext): GameUi
   );
 }
 
+export function executePortalTeleport(
+  current: GameUiState,
+  source: Square,
+  dest: Square,
+  promotedType: PieceType | null,
+  ctx: TransitionContext
+): GameUiState {
+  const activeLabel = getActorName(current.activePlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer);
+  const piece = current.board[source.row][source.col];
+  if (!piece) return current;
+
+  let newBoard = ChessEngine.removePiece(current.board, source);
+  let updatedTraps = [...current.traps];
+  let updatedCaptured = { ...current.capturedPieces };
+  const removedIds = new Set<number>();
+
+  const trapIndex = updatedTraps.findIndex((t) => t.row === dest.row && t.col === dest.col);
+  const finalPiece: ChessPiece =
+    promotedType !== null && trapIndex < 0 ? { ...piece, type: promotedType } : piece;
+
+  let summary =
+    promotedType !== null && trapIndex < 0
+      ? `${activeLabel} teleported Pawn from ${squareToAlgebraic(source).toUpperCase()} to ${squareToAlgebraic(dest).toUpperCase()} and promoted to ${PIECE_META[promotedType].displayName}!`
+      : `${activeLabel} teleported ${PIECE_META[piece.type].displayName} from ${squareToAlgebraic(source).toUpperCase()} to ${squareToAlgebraic(dest).toUpperCase()}!`;
+
+  if (trapIndex >= 0) {
+    updatedTraps.splice(trapIndex, 1);
+    removedIds.add(piece.id);
+    updatedCaptured = {
+      ...updatedCaptured,
+      [piece.color]: [...updatedCaptured[piece.color], piece],
+    };
+    summary += ` 💣 Trap triggered! The piece was destroyed!`;
+  } else {
+    newBoard = ChessEngine.placePiece(newBoard, dest, finalPiece);
+  }
+
+  return passTurnCheckStalemate(
+    current,
+    newBoard,
+    current.castlingRights,
+    summary,
+    'PORTAL',
+    removedIds,
+    {
+      traps: updatedTraps,
+      capturedPieces: updatedCaptured,
+      selectedPortalSourceSquare: null,
+      validPortalSources: [],
+      validPortalDestinations: [],
+      pendingPromotion: null,
+      moveAnimationEvent: {
+        id: Date.now(),
+        from: source,
+        to: dest,
+        piece: finalPiece,
+        isCapture: trapIndex >= 0,
+      },
+    },
+    false,
+    ctx
+  );
+}
+
 export function handlePortalSquareTap(
   current: GameUiState,
   square: Square,
@@ -1446,7 +1525,6 @@ export function handlePortalSquareTap(
 ): GameUiState {
   if (current.phase !== 'PORTALING') return current;
   const activeColor = getActiveColor(current);
-  const activeLabel = getActorName(current.activePlayer, current.gameMode, ctx.isOnlineMultiplayer, ctx.localPlayer);
 
   if (!current.selectedPortalSourceSquare) {
     const isSource = current.validPortalSources.some((s) => sameSquare(s, square));
@@ -1487,52 +1565,28 @@ export function handlePortalSquareTap(
   const isDest = current.validPortalDestinations.some((s) => sameSquare(s, square));
   if (!isDest) return current;
 
-  const piece = current.board[current.selectedPortalSourceSquare.row][current.selectedPortalSourceSquare.col];
+  const sourceSquare = current.selectedPortalSourceSquare;
+  const piece = current.board[sourceSquare.row][sourceSquare.col];
   if (!piece) return current;
 
-  let newBoard = ChessEngine.removePiece(current.board, current.selectedPortalSourceSquare);
-  let updatedTraps = [...current.traps];
-  let updatedCaptured = { ...current.capturedPieces };
-  let summary = `${activeLabel} teleported ${PIECE_META[piece.type].displayName} from ${squareToAlgebraic(current.selectedPortalSourceSquare).toUpperCase()} to ${squareToAlgebraic(square).toUpperCase()}!`;
-  const removedIds = new Set<number>();
+  const isTrap = current.traps.some((t) => t.row === square.row && t.col === square.col);
+  const isPawn = piece.type === 'PAWN';
+  const isPromotionRank =
+    (piece.color === 'WHITE' && square.row === 0) ||
+    (piece.color === 'BLACK' && square.row === 7);
 
-  const trapIndex = updatedTraps.findIndex((t) => t.row === square.row && t.col === square.col);
-  if (trapIndex >= 0) {
-    updatedTraps.splice(trapIndex, 1);
-    removedIds.add(piece.id);
-    updatedCaptured = {
-      ...updatedCaptured,
-      [piece.color]: [...updatedCaptured[piece.color], piece],
+  if (!isTrap && isPawn && isPromotionRank) {
+    const isAi = GAME_MODE_META[current.gameMode].isAi && current.activePlayer === 'PLAYER_2';
+    if (isAi) {
+      return executePortalTeleport(current, sourceSquare, square, 'QUEEN', ctx);
+    }
+    return {
+      ...current,
+      pendingPromotion: { from: sourceSquare, to: square },
     };
-    summary += ` 💣 Trap triggered! The piece was destroyed!`;
-  } else {
-    newBoard = ChessEngine.placePiece(newBoard, square, piece);
   }
 
-  return passTurnCheckStalemate(
-    current,
-    newBoard,
-    current.castlingRights,
-    summary,
-    'PORTAL',
-    removedIds,
-    {
-      traps: updatedTraps,
-      capturedPieces: updatedCaptured,
-      selectedPortalSourceSquare: null,
-      validPortalSources: [],
-      validPortalDestinations: [],
-      moveAnimationEvent: {
-        id: Date.now(),
-        from: current.selectedPortalSourceSquare,
-        to: square,
-        piece,
-        isCapture: trapIndex >= 0,
-      },
-    },
-    false,
-    ctx
-  );
+  return executePortalTeleport(current, sourceSquare, square, null, ctx);
 }
 
 export function skipPortal(current: GameUiState, ctx: TransitionContext): GameUiState {
