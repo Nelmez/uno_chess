@@ -226,6 +226,19 @@ export const SettingsModalDialog: React.FC<SettingsModalDialogProps> = ({
               })}
             </div>
           </section>
+
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '16px 0 6px',
+              fontSize: '11px',
+              color: 'var(--ink-muted)',
+              borderTop: '1px solid var(--hairline)',
+              marginTop: '8px',
+            }}
+          >
+            UNO Chess Web v1.4.2 · Online Multiplayer & PWA
+          </div>
         </div>
       </div>
     </div>

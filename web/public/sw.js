@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uno-chess-cache-v2';
+const CACHE_NAME = 'uno-chess-cache-v1.4.2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
